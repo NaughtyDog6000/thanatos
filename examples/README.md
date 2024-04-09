@@ -1,6 +1,1 @@
-Example Projects to understand and reference:
-
-- [Basic setup & my first window]()
-- [Understanding the ECS model]()
-- [Adding Reactivity]()
-- 
+Creating a Window, a Tree entity with a mesh, Rendering it and Displaying to screen.
