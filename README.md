@@ -14,3 +14,10 @@ To build the project navigate to the root of the project (C:/.../thanatos) and r
 
 If the project is built running `cargo run` will run the previously built debug build, if you have no previous build it will first compile it like with `cargo build` then run the compiled application.
 
+In the case you wish to create a higher performance/release build you put the `--release` flag after the build/run command using cargo: `cargo build --release`
+
+## Basic-Example
+
+
+
+# Documentation
