@@ -1,0 +1,17 @@
+[package]
+name = "MyFirstWindow"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thanatos_macros = { path = "../../thanatos_macros" }
+gltf = { path = "../../gltf" }
+tecs = { path = "../../tecs" }
+hephaestus = { path = "../../hephaestus" }
+
+bytemuck = { version = "1.15.0", features = ["derive"] }
+concat-idents = "1.1.5"
+glam = { version = "0.26.0", features = ["bytemuck"] }
+tokio = { version = "1.36.0", features = ["full"] }
+winit = { version = "0.29.15", features = ["rwh_05"] }
+anyhow = "1.0.81"
