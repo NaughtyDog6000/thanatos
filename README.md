@@ -16,7 +16,9 @@ If the project is built running `cargo run` will run the previously built debug 
 
 In the case you wish to create a higher performance/release build you put the `--release` flag after the build/run command using cargo: `cargo build --release`
 
-## Basic-Example
+## Examples
+We have created a set of simple projects that show how to use the systems of the engine which you can use as reference for your creations.
+
 
 
 
