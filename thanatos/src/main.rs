@@ -11,7 +11,7 @@ use crate::{camera::Camera, window::Window};
 use anyhow::Result;
 use assets::Mesh;
 use event::Event;
-use glam::{Quat, Vec3};
+use glam::Vec3;
 use graphics::{RenderObject, Renderer};
 use tecs::impl_archetype;
 use thanatos_macros::Archetype;
@@ -87,7 +87,6 @@ async fn main() -> Result<()> {
             println!("FPS: {}", 1.0 / clock.frame_delta.as_secs_f32());
         })
         .with_ticker(Clock::tick)
-        .with_ticker(|world| world.query::<&mut Transform>().for_each(|transform| transform.translation += Vec3::X * 0.001))
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;

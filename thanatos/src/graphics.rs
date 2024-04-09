@@ -8,7 +8,7 @@ use crate::{
     World,
 };
 use bytemuck::offset_of;
-use glam::{Vec2, Vec3};
+use glam::Vec3;
 use hephaestus::{
     buffer::Static,
     command, descriptor,
@@ -19,7 +19,7 @@ use hephaestus::{
     },
     task::{Fence, Semaphore, SubmitInfo, Task},
     vertex::{self, AttributeType},
-    BufferUsageFlags, ClearColorValue, ClearValue, Context, DescriptorType, Extent2D, Format,
+    BufferUsageFlags, Context, DescriptorType, Extent2D, Format,
     ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, VkResult,
 };
 use log::info;
