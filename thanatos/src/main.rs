@@ -2,6 +2,7 @@ mod assets;
 mod camera;
 mod event;
 mod graphics;
+mod transform;
 mod window;
 
 use std::time::{Duration, Instant};
@@ -14,11 +15,13 @@ use glam::{Quat, Vec3};
 use graphics::{RenderObject, Renderer};
 use tecs::impl_archetype;
 use thanatos_macros::Archetype;
+use transform::Transform;
 use window::{Keyboard, Mouse};
 
 #[derive(Archetype)]
 struct CopperOre {
     render: RenderObject,
+    transform: Transform,
 }
 
 #[derive(Archetype)]
@@ -84,6 +87,7 @@ async fn main() -> Result<()> {
             println!("FPS: {}", 1.0 / clock.frame_delta.as_secs_f32());
         })
         .with_ticker(Clock::tick)
+        .with_ticker(|world| world.query::<&mut Transform>().for_each(|transform| transform.translation += Vec3::X * 0.001))
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -91,8 +95,12 @@ async fn main() -> Result<()> {
             _ => (),
         });
 
+    let mut transform = Transform::IDENTITY;
+    transform.translation += Vec3::X;
+
     world.spawn(CopperOre {
         render: RenderObject { mesh: copper_ore },
+        transform
     });
     world.spawn(Tree {
         render: RenderObject { mesh: tree },

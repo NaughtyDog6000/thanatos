@@ -9,7 +9,11 @@ layout(set = 0, binding = 0) uniform Camera {
     mat4 viewProj;
 } camera;
 
+layout(set = 1, binding = 0) uniform Transform {
+    mat4 transform;
+} transform;
+
 void main() {
-    gl_Position = camera.viewProj * vec4(position, 1.0);
+    gl_Position = camera.viewProj * transform.transform * vec4(position, 1.0);
     fragColor = normal * 0.5 + 0.5;
 }
