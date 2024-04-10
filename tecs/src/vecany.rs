@@ -53,7 +53,7 @@ impl VecAny {
 
         let mut data: Vec<T> = match self.ptr {
             Some(ptr) => unsafe { Vec::<T>::from_raw_parts(ptr.cast(), self.len, self.cap) },
-            None => Vec::<T>::new()
+            None => Vec::<T>::new(),
         };
 
         data.push(item);
@@ -77,8 +77,8 @@ impl VecAny {
 mod tests {
     use super::*;
 
-    #[test] 
-    pub fn test_normal() { 
+    #[test]
+    pub fn test_normal() {
         let mut vecany = VecAny::new::<usize>();
         vecany.push(0_usize);
         vecany.push(1_usize);
@@ -88,9 +88,8 @@ mod tests {
         assert_eq!(Some(data.as_mut_slice()), vecany.downcast_mut::<usize>());
     }
 
-
-    #[test] 
-    pub fn test_uninit() { 
+    #[test]
+    pub fn test_uninit() {
         let mut vecany = VecAny::new_uninit(TypeId::of::<usize>());
         vecany.push(0_usize);
         vecany.push(1_usize);

@@ -19,8 +19,8 @@ use hephaestus::{
     },
     task::{Fence, Semaphore, SubmitInfo, Task},
     vertex::{self, AttributeType},
-    BufferUsageFlags, Context, DescriptorType, Extent2D, Format,
-    ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, VkResult,
+    BufferUsageFlags, Context, DescriptorType, Extent2D, Format, ImageAspectFlags, ImageUsageFlags,
+    PipelineStageFlags, VkResult,
 };
 use log::info;
 use tecs::EntityId;

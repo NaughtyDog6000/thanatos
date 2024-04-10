@@ -2,7 +2,8 @@ use std::{collections::HashSet, sync::Arc};
 
 use glam::Vec2;
 use winit::{
-    event::{ElementState, WindowEvent},
+    dpi::PhysicalPosition,
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{Key, SmolStr},
     platform::run_on_demand::EventLoopExtRunOnDemand,
@@ -15,6 +16,13 @@ use crate::{event::Event, World};
 pub struct Mouse {
     pub position: Vec2,
     pub delta: Vec2,
+    down: HashSet<MouseButton>,
+}
+
+impl Mouse {
+    pub fn is_down(&self, button: MouseButton) -> bool {
+        self.down.contains(&button)
+    }
 }
 
 pub fn clear_mouse_delta(world: &mut World) {
@@ -65,6 +73,11 @@ impl Window {
         let window = Arc::new(window);
         Self { event_loop, window }
     }
+
+    pub fn screen_to_ndc(&self, pos: Vec2) -> Vec2 {
+        let size = self.window.inner_size();
+        pos * 2.0 / Vec2::new(size.width as f32, size.height as f32) - 1.0
+    }
 }
 
 pub fn poll_events(world: &mut World) {
@@ -102,10 +115,19 @@ pub fn poll_events(world: &mut World) {
                                 }
                             }
                         }
-                        WindowEvent::MouseInput { state, button, .. } => match state {
-                            ElementState::Pressed => events.push(Event::MousePress(button)),
-                            ElementState::Released => events.push(Event::MouseRelease(button)),
-                        },
+                        WindowEvent::MouseInput { state, button, .. } => {
+                            let mut mouse = world.get_mut::<Mouse>().unwrap();
+                            match state {
+                                ElementState::Pressed => {
+                                    mouse.down.insert(button);
+                                    events.push(Event::MousePress(button))
+                                }
+                                ElementState::Released => {
+                                    mouse.down.remove(&button);
+                                    events.push(Event::MouseRelease(button))
+                                }
+                            }
+                        }
                         WindowEvent::CursorMoved { position, .. } => {
                             let mut mouse = world.get_mut::<Mouse>().unwrap();
                             let position = Vec2::new(position.x as f32, position.y as f32);

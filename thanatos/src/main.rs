@@ -1,5 +1,6 @@
 mod assets;
 mod camera;
+mod collider;
 mod event;
 mod graphics;
 mod transform;
@@ -7,21 +8,24 @@ mod window;
 
 use std::time::{Duration, Instant};
 
-use crate::{camera::Camera, window::Window};
+use crate::{camera::Camera, collider::Ray, window::Window};
 use anyhow::Result;
 use assets::Mesh;
+use collider::Collider;
 use event::Event;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use graphics::{RenderObject, Renderer};
 use tecs::impl_archetype;
 use thanatos_macros::Archetype;
 use transform::Transform;
 use window::{Keyboard, Mouse};
+use winit::event::MouseButton;
 
 #[derive(Archetype)]
 struct CopperOre {
     render: RenderObject,
     transform: Transform,
+    collider: Collider,
 }
 
 #[derive(Archetype)]
@@ -51,6 +55,22 @@ pub enum State {
     Running,
 }
 
+fn raycast_test(world: &mut World) {
+    let mouse = world.get::<Mouse>().unwrap();
+    let window = world.get::<Window>().unwrap();
+
+    if mouse.is_down(MouseButton::Left) {
+        let camera = world.get::<Camera>().unwrap();
+        let world_pos = camera.ndc_to_world(window.screen_to_ndc(mouse.position));
+        let ray = Ray::from_points(camera.eye, world_pos);
+
+        let colliders = world.query::<&Collider>();
+        colliders.iter().for_each(|collider| {
+            println!("{:?}", collider.intersects(ray));
+        })
+    }
+}
+
 pub type World = tecs::World<Event>;
 
 #[tokio::main]
@@ -63,7 +83,7 @@ async fn main() -> Result<()> {
     let camera = Camera::new(&window);
 
     let mut assets = assets::Manager::new();
-    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb", &renderer)?);
+    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/cube.glb", &renderer)?);
     let tree = assets.add_mesh(Mesh::load("assets/meshes/tree.glb", &renderer)?);
     let mut world = World::new()
         .with_resource(State::Running)
@@ -82,6 +102,7 @@ async fn main() -> Result<()> {
         .with_ticker(window::poll_events)
         .with_handler(camera::handle_resize)
         .with_ticker(graphics::draw)
+        .with_ticker(raycast_test)
         .with_ticker(|world| {
             let clock = world.get::<Clock>().unwrap();
             println!("FPS: {}", 1.0 / clock.frame_delta.as_secs_f32());
@@ -95,11 +116,15 @@ async fn main() -> Result<()> {
         });
 
     let mut transform = Transform::IDENTITY;
-    transform.translation += Vec3::X;
+    transform.translation += Vec3::ZERO;
 
     world.spawn(CopperOre {
         render: RenderObject { mesh: copper_ore },
-        transform
+        transform,
+        collider: Collider {
+            kind: collider::ColliderKind::Aabb(Vec3::ONE),
+            position: Vec3::ZERO,
+        },
     });
     world.spawn(Tree {
         render: RenderObject { mesh: tree },

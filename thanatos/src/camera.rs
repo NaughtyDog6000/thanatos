@@ -1,6 +1,6 @@
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3, Vec4, Vec4Swizzles};
 
-use crate::{event::Event, window::Window, World};
+use crate::{collider::Ray, event::Event, window::Window, World};
 
 pub struct Camera {
     pub eye: Vec3,
@@ -25,6 +25,12 @@ impl Camera {
         let view = Mat4::look_to_rh(self.eye, self.direction, Vec3::Y);
         let projection = Mat4::perspective_infinite_rh(self.fov, self.aspect, 0.1);
         projection * view
+    }
+
+    pub fn ndc_to_world(&self, pos: Vec2) -> Vec3 {
+        let transform = self.get_matrix().inverse();
+        let transformed = transform * Vec4::new(pos.x, pos.y, 0.0, 1.0);
+        transformed.xyz() / transformed.w
     }
 }
 
