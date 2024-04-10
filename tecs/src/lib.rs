@@ -398,6 +398,10 @@ impl<E> World<E> {
         Self::default()
     }
 
+    pub fn with<F: FnOnce(Self) -> Self>(self, f: F) -> Self {
+        f(self)
+    }
+
     pub fn with_system<T: System<E> + 'static>(mut self, system: T) -> Self {
         self.systems.push(Rc::new(system));
         self

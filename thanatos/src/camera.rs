@@ -1,6 +1,6 @@
-use glam::{Mat4, Quat, Vec2, Vec3, Vec4, Vec4Swizzles};
+use glam::{Mat4, Vec2, Vec3, Vec4, Vec4Swizzles};
 
-use crate::{collider::Ray, event::Event, window::Window, World};
+use crate::{event::Event, window::Window, World};
 
 pub struct Camera {
     pub eye: Vec3,
@@ -32,14 +32,18 @@ impl Camera {
         let transformed = transform * Vec4::new(pos.x, pos.y, 0.0, 1.0);
         transformed.xyz() / transformed.w
     }
-}
 
-pub fn handle_resize(world: &mut World, event: &Event) {
-    match event {
-        Event::Resized(new_size) => {
-            let mut camera = world.get_mut::<Camera>().unwrap();
-            camera.aspect = new_size.width as f32 / new_size.height as f32;
+    pub fn handle_resize(world: &mut World, event: &Event) {
+        match event {
+            Event::Resized(new_size) => {
+                let mut camera = world.get_mut::<Camera>().unwrap();
+                camera.aspect = new_size.width as f32 / new_size.height as f32;
+            }
+            _ => (),
         }
-        _ => (),
+    }
+
+    pub fn add(self) -> impl FnOnce(World) -> World {
+        move |world| world.with_resource(self).with_handler(Self::handle_resize)
     }
 }

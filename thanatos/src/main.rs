@@ -41,6 +41,16 @@ pub struct Clock {
 }
 
 impl Clock {
+    pub fn add(world: World) -> World {
+        world
+            .with_resource(Self {
+                frame_delta: Duration::ZERO,
+                start: Instant::now(),
+                last: Instant::now(),
+            })
+            .with_ticker(Self::tick)
+    }
+
     pub fn tick(world: &mut World) {
         let mut clock = world.get_mut::<Clock>().unwrap();
         let now = Instant::now();
@@ -87,27 +97,16 @@ async fn main() -> Result<()> {
     let tree = assets.add_mesh(Mesh::load("assets/meshes/tree.glb", &renderer)?);
     let mut world = World::new()
         .with_resource(State::Running)
-        .with_resource(window)
-        .with_resource(renderer)
-        .with_resource(camera)
         .with_resource(assets)
-        .with_resource(Mouse::default())
-        .with_resource(Keyboard::default())
-        .with_resource(Clock {
-            frame_delta: Duration::default(),
-            start: Instant::now(),
-            last: Instant::now(),
-        })
-        .with_ticker(window::clear_mouse_delta)
-        .with_ticker(window::poll_events)
-        .with_handler(camera::handle_resize)
-        .with_ticker(graphics::draw)
+        .with(window.add())
+        .with(renderer.add())
+        .with(camera.add())
+        .with(Clock::add)
         .with_ticker(raycast_test)
         .with_ticker(|world| {
             let clock = world.get::<Clock>().unwrap();
             println!("FPS: {}", 1.0 / clock.frame_delta.as_secs_f32());
         })
-        .with_ticker(Clock::tick)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;

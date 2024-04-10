@@ -166,6 +166,10 @@ impl Renderer {
         })
     }
 
+    pub fn add(self) -> impl FnOnce(World) -> World {
+        move |world| world.with_resource(self).with_ticker(Self::draw)
+    }
+
     fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Image>, Vec<ImageView>)> {
         let depth_images = ctx
             .swapchain
@@ -259,137 +263,138 @@ impl Renderer {
 
         Ok(())
     }
-}
 
-pub fn draw(world: &mut World) {
-    let mut renderer = world.get_mut::<Renderer>().unwrap();
-    if renderer.tasks.len() > Renderer::FRAMES_IN_FLIGHT {
-        let frame = renderer.tasks.pop_front().unwrap();
-        frame.destroy(&renderer.ctx);
-    }
+    pub fn draw(world: &mut World) {
+        let mut renderer = world.get_mut::<Renderer>().unwrap();
+        if renderer.tasks.len() > Renderer::FRAMES_IN_FLIGHT {
+            let frame = renderer.tasks.pop_front().unwrap();
+            frame.destroy(&renderer.ctx);
+        }
 
-    let mut task = Task::new();
-    let image_available = task.semaphore(&renderer.ctx.device).unwrap();
-    let render_finished =
-        renderer.semaphores[renderer.frame_index % Renderer::FRAMES_IN_FLIGHT].clone();
-    let in_flight = task.fence(&renderer.ctx.device).unwrap();
-    let (image_index, suboptimal) = task
-        .acquire_next_image(
-            &renderer.ctx.device,
-            &renderer.ctx.swapchain,
-            image_available.clone(),
-        )
-        .unwrap();
-
-    let window = world.get::<Window>().unwrap();
-    let size = window.window.inner_size();
-
-    if suboptimal {
-        info!("Recreating swapchain");
-        renderer
-            .recreate_swapchain((size.width, size.height))
-            .unwrap();
-        task.destroy(&renderer.ctx.device);
-        return;
-    }
-
-    let camera = world.get::<Camera>().unwrap();
-    let camera_buffer = Static::new(
-        &renderer.ctx,
-        bytemuck::cast_slice::<f32, u8>(&camera.get_matrix().to_cols_array()),
-        BufferUsageFlags::UNIFORM_BUFFER,
-    )
-    .unwrap();
-    let camera_set = renderer.camera_layout.alloc(&renderer.ctx).unwrap();
-    camera_set.write_buffer(&renderer.ctx, 0, &camera_buffer);
-
-    let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
-
-    let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
-    let object_sets = entities
-        .iter()
-        .map(|id| {
-            let transform = world
-                .get_component::<Transform>(*id)
-                .map(|x| *x)
-                .unwrap_or_default();
-            let transform_buffer = Static::new(
-                &renderer.ctx,
-                bytemuck::cast_slice::<f32, u8>(&transform.matrix().to_cols_array()),
-                BufferUsageFlags::UNIFORM_BUFFER,
+        let mut task = Task::new();
+        let image_available = task.semaphore(&renderer.ctx.device).unwrap();
+        let render_finished =
+            renderer.semaphores[renderer.frame_index % Renderer::FRAMES_IN_FLIGHT].clone();
+        let in_flight = task.fence(&renderer.ctx.device).unwrap();
+        let (image_index, suboptimal) = task
+            .acquire_next_image(
+                &renderer.ctx.device,
+                &renderer.ctx.swapchain,
+                image_available.clone(),
             )
             .unwrap();
-            let set = renderer.object_layout.alloc(&renderer.ctx).unwrap();
-            set.write_buffer(&renderer.ctx, 0, &transform_buffer);
-            (transform_buffer, set)
-        })
-        .collect::<Vec<(Static, descriptor::Set)>>();
-    let assets = world.get::<assets::Manager>().unwrap();
 
-    let cmd = renderer
-        .ctx
-        .command_pool
-        .alloc(&renderer.ctx.device)
-        .unwrap()
-        .begin(&renderer.ctx.device)
-        .unwrap()
-        .begin_render_pass(
-            &renderer.render_pass,
-            renderer.framebuffers.get(image_index as usize).unwrap(),
-            &clear_values,
-        )
-        .bind_graphics_pipeline(&renderer.pipeline)
-        .set_viewport(size.width, size.height)
-        .set_scissor(size.width, size.height)
-        .bind_descriptor_set(&camera_set, 0);
+        let window = world.get::<Window>().unwrap();
+        let size = window.window.inner_size();
 
-    let cmd = render_objects
-        .iter()
-        .zip(object_sets.iter())
-        .fold(cmd, |cmd, (object, (_, set))| {
-            let mesh = assets.get_mesh(object.mesh).unwrap();
-            cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
-                .bind_index_buffer(&mesh.index_buffer)
-                .bind_descriptor_set(set, 1)
-                .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
-        });
+        if suboptimal {
+            info!("Recreating swapchain");
+            renderer
+                .recreate_swapchain((size.width, size.height))
+                .unwrap();
+            task.destroy(&renderer.ctx.device);
+            return;
+        }
 
-    let cmd = cmd.end_render_pass().end().unwrap();
-
-    task.submit(SubmitInfo {
-        device: &renderer.ctx.device,
-        queue: &renderer.ctx.device.queues.graphics,
-        cmd: &cmd,
-        wait: &[(image_available, PipelineStageFlags::TOP_OF_PIPE)],
-        signal: &[render_finished.clone()],
-        fence: in_flight.clone(),
-    })
-    .unwrap();
-
-    let suboptimal = task
-        .present(
-            &renderer.ctx.device,
-            &renderer.ctx.swapchain,
-            image_index,
-            &[render_finished],
+        let camera = world.get::<Camera>().unwrap();
+        let camera_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<f32, u8>(&camera.get_matrix().to_cols_array()),
+            BufferUsageFlags::UNIFORM_BUFFER,
         )
         .unwrap();
+        let camera_set = renderer.camera_layout.alloc(&renderer.ctx).unwrap();
+        camera_set.write_buffer(&renderer.ctx, 0, &camera_buffer);
 
-    if suboptimal {
-        info!("Recreating swapchain");
-        renderer
-            .recreate_swapchain((size.width, size.height))
+        let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
+
+        let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
+        let object_sets = entities
+            .iter()
+            .map(|id| {
+                let transform = world
+                    .get_component::<Transform>(*id)
+                    .map(|x| *x)
+                    .unwrap_or_default();
+                let transform_buffer = Static::new(
+                    &renderer.ctx,
+                    bytemuck::cast_slice::<f32, u8>(&transform.matrix().to_cols_array()),
+                    BufferUsageFlags::UNIFORM_BUFFER,
+                )
+                .unwrap();
+                let set = renderer.object_layout.alloc(&renderer.ctx).unwrap();
+                set.write_buffer(&renderer.ctx, 0, &transform_buffer);
+                (transform_buffer, set)
+            })
+            .collect::<Vec<(Static, descriptor::Set)>>();
+        let assets = world.get::<assets::Manager>().unwrap();
+
+        let cmd = renderer
+            .ctx
+            .command_pool
+            .alloc(&renderer.ctx.device)
+            .unwrap()
+            .begin(&renderer.ctx.device)
+            .unwrap()
+            .begin_render_pass(
+                &renderer.render_pass,
+                renderer.framebuffers.get(image_index as usize).unwrap(),
+                &clear_values,
+            )
+            .bind_graphics_pipeline(&renderer.pipeline)
+            .set_viewport(size.width, size.height)
+            .set_scissor(size.width, size.height)
+            .bind_descriptor_set(&camera_set, 0);
+
+        let cmd =
+            render_objects
+                .iter()
+                .zip(object_sets.iter())
+                .fold(cmd, |cmd, (object, (_, set))| {
+                    let mesh = assets.get_mesh(object.mesh).unwrap();
+                    cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
+                        .bind_index_buffer(&mesh.index_buffer)
+                        .bind_descriptor_set(set, 1)
+                        .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
+                });
+
+        let cmd = cmd.end_render_pass().end().unwrap();
+
+        task.submit(SubmitInfo {
+            device: &renderer.ctx.device,
+            queue: &renderer.ctx.device.queues.graphics,
+            cmd: &cmd,
+            wait: &[(image_available, PipelineStageFlags::TOP_OF_PIPE)],
+            signal: &[render_finished.clone()],
+            fence: in_flight.clone(),
+        })
+        .unwrap();
+
+        let suboptimal = task
+            .present(
+                &renderer.ctx.device,
+                &renderer.ctx.swapchain,
+                image_index,
+                &[render_finished],
+            )
             .unwrap();
+
+        if suboptimal {
+            info!("Recreating swapchain");
+            renderer
+                .recreate_swapchain((size.width, size.height))
+                .unwrap();
+        }
+
+        renderer.tasks.push_back(Frame {
+            task,
+            cmd,
+            fence: in_flight,
+            camera_buffer,
+            camera_set,
+            object_sets,
+        });
+
+        renderer.frame_index += 1;
     }
-
-    renderer.tasks.push_back(Frame {
-        task,
-        cmd,
-        fence: in_flight,
-        camera_buffer,
-        camera_set,
-        object_sets,
-    });
-
-    renderer.frame_index += 1;
 }

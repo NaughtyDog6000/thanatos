@@ -23,11 +23,11 @@ impl Mouse {
     pub fn is_down(&self, button: MouseButton) -> bool {
         self.down.contains(&button)
     }
-
-    pub fn tick(world: &mut World) {
-        let mut mouse = world.get_mut::<Mouse>().unwrap();
-        mouse.delta = Vec2::ZERO;
-    }
+    
+pub fn tick(world: &mut World) {
+    let mut mouse = world.get_mut::<Mouse>().unwrap();
+    mouse.delta = Vec2::ZERO;
+}
 }
 
 #[derive(Clone, Default)]
@@ -149,7 +149,6 @@ impl Window {
                 .with_resource(Mouse::default())
                 .with_resource(Keyboard::default())
                 .with_ticker(Self::tick)
-                .with_ticker(Mouse::tick)
         }
     }
 
