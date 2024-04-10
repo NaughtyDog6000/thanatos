@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use glam::{Vec3, Vec4};
 use gltf::Glb;
-use hephaestus::{buffer::Static, BufferUsageFlags, Context, VkResult};
+use hephaestus::{buffer::Static, BufferUsageFlags};
 
 use crate::graphics::{Renderer, Vertex};
 
