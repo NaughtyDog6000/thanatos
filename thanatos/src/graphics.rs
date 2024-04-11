@@ -3,11 +3,12 @@ use std::{collections::VecDeque, mem::size_of};
 use crate::{
     assets::{self, MeshId},
     camera::Camera,
+    transform::Transform,
     window::Window,
     World,
 };
 use bytemuck::offset_of;
-use glam::{Vec2, Vec3};
+use glam::Vec3;
 use hephaestus::{
     buffer::Static,
     command, descriptor,
@@ -18,10 +19,11 @@ use hephaestus::{
     },
     task::{Fence, Semaphore, SubmitInfo, Task},
     vertex::{self, AttributeType},
-    BufferUsageFlags, ClearColorValue, ClearValue, Context, DescriptorType, Extent2D, Format,
+    BufferUsageFlags, Context, DescriptorType, Extent2D, Format,
     ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, VkResult,
 };
 use log::info;
+use tecs::EntityId;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -44,6 +46,7 @@ struct Frame {
     fence: Fence,
     camera_buffer: Static,
     camera_set: descriptor::Set,
+    object_sets: Vec<(Static, descriptor::Set)>,
 }
 
 impl Frame {
@@ -52,6 +55,12 @@ impl Frame {
         self.cmd.destroy(&ctx.device, &ctx.command_pool);
         self.camera_set.destroy(&ctx);
         self.camera_buffer.destroy(&ctx.device);
+        self.object_sets
+            .into_iter()
+            .for_each(|(transform_buffer, set)| {
+                set.destroy(&ctx);
+                transform_buffer.destroy(&ctx.device);
+            });
         self.task.destroy(&ctx.device);
     }
 }
@@ -112,8 +121,7 @@ impl Renderer {
         };
 
         let camera_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
-        let object_layout =
-            descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER; 2], 1000)?;
+        let object_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
 
         let pipeline = pipeline::Graphics::builder()
             .vertex(&vertex)
@@ -297,7 +305,25 @@ pub fn draw(world: &mut World) {
 
     let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
 
-    let objects = world.query::<&RenderObject>();
+    let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
+    let object_sets = entities
+        .iter()
+        .map(|id| {
+            let transform = world
+                .get_component::<Transform>(*id)
+                .map(|x| *x)
+                .unwrap_or_default();
+            let transform_buffer = Static::new(
+                &renderer.ctx,
+                bytemuck::cast_slice::<f32, u8>(&transform.matrix().to_cols_array()),
+                BufferUsageFlags::UNIFORM_BUFFER,
+            )
+            .unwrap();
+            let set = renderer.object_layout.alloc(&renderer.ctx).unwrap();
+            set.write_buffer(&renderer.ctx, 0, &transform_buffer);
+            (transform_buffer, set)
+        })
+        .collect::<Vec<(Static, descriptor::Set)>>();
     let assets = world.get::<assets::Manager>().unwrap();
 
     let cmd = renderer
@@ -317,12 +343,16 @@ pub fn draw(world: &mut World) {
         .set_scissor(size.width, size.height)
         .bind_descriptor_set(&camera_set, 0);
 
-    let cmd = objects.iter().fold(cmd, |cmd, object| {
-        let mesh = assets.get_mesh(object.mesh).unwrap();
-        cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
-            .bind_index_buffer(&mesh.index_buffer)
-            .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
-    });
+    let cmd = render_objects
+        .iter()
+        .zip(object_sets.iter())
+        .fold(cmd, |cmd, (object, (_, set))| {
+            let mesh = assets.get_mesh(object.mesh).unwrap();
+            cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
+                .bind_index_buffer(&mesh.index_buffer)
+                .bind_descriptor_set(set, 1)
+                .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
+        });
 
     let cmd = cmd.end_render_pass().end().unwrap();
 
@@ -358,6 +388,7 @@ pub fn draw(world: &mut World) {
         fence: in_flight,
         camera_buffer,
         camera_set,
+        object_sets,
     });
 
     renderer.frame_index += 1;

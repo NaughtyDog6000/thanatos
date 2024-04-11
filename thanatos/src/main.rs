@@ -2,6 +2,7 @@ mod assets;
 mod camera;
 mod event;
 mod graphics;
+mod transform;
 mod window;
 
 use std::time::{Duration, Instant};
@@ -10,15 +11,17 @@ use crate::{camera::Camera, window::Window};
 use anyhow::Result;
 use assets::Mesh;
 use event::Event;
-use glam::{Quat, Vec3};
+use glam::Vec3;
 use graphics::{RenderObject, Renderer};
 use tecs::impl_archetype;
 use thanatos_macros::Archetype;
+use transform::Transform;
 use window::{Keyboard, Mouse};
 
 #[derive(Archetype)]
 struct CopperOre {
     render: RenderObject,
+    transform: Transform,
 }
 
 #[derive(Archetype)]
@@ -91,8 +94,12 @@ async fn main() -> Result<()> {
             _ => (),
         });
 
+    let mut transform = Transform::IDENTITY;
+    transform.translation += Vec3::X;
+
     world.spawn(CopperOre {
         render: RenderObject { mesh: copper_ore },
+        transform
     });
     world.spawn(Tree {
         render: RenderObject { mesh: tree },
