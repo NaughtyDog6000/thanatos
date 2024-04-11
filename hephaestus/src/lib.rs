@@ -9,7 +9,7 @@ pub mod vertex;
 use std::{
     collections::HashSet,
     ffi::{c_char, CStr, CString},
-    ops::Deref,
+    ops::Deref, rc::Rc,
 };
 
 pub use ash::prelude::VkResult;
@@ -434,7 +434,7 @@ pub struct Context {
     pub entry: Entry,
     pub instance: Instance,
     pub surface: Surface,
-    pub device: Device,
+    pub device: Rc<Device>,
     pub swapchain: Swapchain,
     pub command_pool: command::Pool,
 }
@@ -458,7 +458,7 @@ impl Context {
             entry,
             instance,
             surface,
-            device,
+            device: Rc::new(device),
             swapchain,
             command_pool,
         })
@@ -504,7 +504,7 @@ impl Context {
     pub fn destroy(self) {
         self.command_pool.destroy(&self.device);
         self.swapchain.destroy(&self.device);
-        self.device.destroy();
+        Rc::into_inner(self.device).expect("Device still in use").destroy();
         self.surface.destroy(&self.instance);
         self.instance.destroy();
     }

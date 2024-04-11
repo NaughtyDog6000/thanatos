@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, mem::size_of};
+use std::{collections::VecDeque, mem::size_of, rc::Rc};
 
 use crate::{
     assets::{self, Material, MaterialId, MeshId},
@@ -43,7 +43,7 @@ impl Vertex {
 struct Frame {
     task: Task,
     cmd: command::Buffer,
-    fence: Fence,
+    fence: Rc<Fence>,
     camera_buffer: Static,
     camera_set: descriptor::Set,
     object_sets: Vec<(Static, Static, descriptor::Set)>,
@@ -51,7 +51,7 @@ struct Frame {
 
 impl Frame {
     fn destroy(self, ctx: &Context) {
-        self.fence.wait(&ctx.device).unwrap();
+        self.fence.wait().unwrap();
         self.cmd.destroy(&ctx.device, &ctx.command_pool);
         self.camera_set.destroy(&ctx);
         self.camera_buffer.destroy(&ctx.device);
@@ -62,7 +62,6 @@ impl Frame {
                 transform_buffer.destroy(&ctx.device);
                 material_buffer.destroy(&ctx.device);
             });
-        self.task.destroy(&ctx.device);
     }
 }
 
@@ -76,7 +75,7 @@ pub struct Renderer {
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
     framebuffers: Vec<Framebuffer>,
-    semaphores: Vec<Semaphore>,
+    semaphores: Vec<Rc<Semaphore>>,
     frame_index: usize,
     tasks: VecDeque<Frame>,
     camera_layout: descriptor::Layout,
@@ -151,7 +150,7 @@ impl Renderer {
 
         let semaphores = (0..Self::FRAMES_IN_FLIGHT)
             .map(|_| Semaphore::new(&ctx.device))
-            .collect::<VkResult<Vec<Semaphore>>>()?;
+            .collect::<VkResult<Vec<Rc<Semaphore>>>>()?;
 
         Ok(Self {
             ctx,
@@ -208,9 +207,6 @@ impl Renderer {
         self.tasks
             .into_iter()
             .for_each(|frame| frame.destroy(&self.ctx));
-        self.semaphores
-            .into_iter()
-            .for_each(|semaphore| semaphore.destroy(&self.ctx.device));
 
         self.framebuffers
             .into_iter()
@@ -274,10 +270,10 @@ impl Renderer {
         }
 
         let mut task = Task::new();
-        let image_available = task.semaphore(&renderer.ctx.device).unwrap();
+        let image_available = Semaphore::new(&renderer.ctx.device).unwrap();
         let render_finished =
             renderer.semaphores[renderer.frame_index % Renderer::FRAMES_IN_FLIGHT].clone();
-        let in_flight = task.fence(&renderer.ctx.device).unwrap();
+        let in_flight = Fence::new(&renderer.ctx.device).unwrap();
         let (image_index, suboptimal) = task
             .acquire_next_image(
                 &renderer.ctx.device,
@@ -294,7 +290,6 @@ impl Renderer {
             renderer
                 .recreate_swapchain((size.width, size.height))
                 .unwrap();
-            task.destroy(&renderer.ctx.device);
             return;
         }
 

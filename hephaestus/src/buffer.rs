@@ -11,7 +11,7 @@ use ash::{
 
 use crate::{
     command::Region,
-    task::{SubmitInfo, Task},
+    task::{SubmitInfo, Task, Fence},
     Context, Device,
 };
 
@@ -157,7 +157,7 @@ impl Static {
             .end()?;
 
         let mut task = Task::new();
-        let fence = task.fence(&ctx.device)?;
+        let fence = Fence::new(&ctx.device)?;
         task.submit(SubmitInfo {
             cmd: &cmd,
             fence: fence.clone(),
@@ -166,8 +166,7 @@ impl Static {
             wait: &[],
             signal: &[],
         })?;
-        fence.wait(&ctx.device)?;
-        task.destroy(&ctx.device);
+        fence.wait()?;
 
         staging.destroy(&ctx.device);
 
