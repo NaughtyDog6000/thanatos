@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 
 use crate::{camera::Camera, collider::Ray, window::Window};
 use anyhow::Result;
-use assets::Mesh;
+use assets::{Material, Mesh};
 use collider::Collider;
 use event::Event;
-use glam::{Vec2, Vec3};
+use glam::{Vec2, Vec3, Vec4};
 use graphics::{RenderObject, Renderer};
 use tecs::impl_archetype;
 use thanatos_macros::Archetype;
@@ -95,6 +95,7 @@ async fn main() -> Result<()> {
     let mut assets = assets::Manager::new();
     let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/cube.glb", &renderer)?);
     let tree = assets.add_mesh(Mesh::load("assets/meshes/tree.glb", &renderer)?);
+    let material = assets.add_material(Material { colour: Vec4::X + Vec4::Z + Vec4::W });
     let mut world = World::new()
         .with_resource(State::Running)
         .with_resource(assets)
@@ -118,7 +119,7 @@ async fn main() -> Result<()> {
     transform.translation += Vec3::ZERO;
 
     world.spawn(CopperOre {
-        render: RenderObject { mesh: copper_ore },
+        render: RenderObject { mesh: copper_ore, material },
         transform,
         collider: Collider {
             kind: collider::ColliderKind::Aabb(Vec3::ONE),
@@ -126,7 +127,7 @@ async fn main() -> Result<()> {
         },
     });
     world.spawn(Tree {
-        render: RenderObject { mesh: tree },
+        render: RenderObject { mesh: tree, material },
     });
 
     loop {
@@ -137,6 +138,9 @@ async fn main() -> Result<()> {
     }
 
     let renderer = world.remove::<Renderer>().unwrap();
+    unsafe { renderer.ctx.device.device_wait_idle(); }
+    let manager = world.remove::<assets::Manager>().unwrap();
+    manager.destroy(&renderer);
     renderer.destroy();
 
     Ok(())

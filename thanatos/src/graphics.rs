@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, mem::size_of};
 
 use crate::{
-    assets::{self, MeshId},
+    assets::{self, Material, MaterialId, MeshId},
     camera::Camera,
     transform::Transform,
     window::Window,
@@ -46,7 +46,7 @@ struct Frame {
     fence: Fence,
     camera_buffer: Static,
     camera_set: descriptor::Set,
-    object_sets: Vec<(Static, descriptor::Set)>,
+    object_sets: Vec<(Static, Static, descriptor::Set)>,
 }
 
 impl Frame {
@@ -57,9 +57,10 @@ impl Frame {
         self.camera_buffer.destroy(&ctx.device);
         self.object_sets
             .into_iter()
-            .for_each(|(transform_buffer, set)| {
+            .for_each(|(transform_buffer, material_buffer, set)| {
                 set.destroy(&ctx);
                 transform_buffer.destroy(&ctx.device);
+                material_buffer.destroy(&ctx.device);
             });
         self.task.destroy(&ctx.device);
     }
@@ -67,6 +68,7 @@ impl Frame {
 
 pub struct RenderObject {
     pub mesh: MeshId,
+    pub material: MaterialId
 }
 
 pub struct Renderer {
@@ -121,7 +123,7 @@ impl Renderer {
         };
 
         let camera_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
-        let object_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
+        let object_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER; 2], 1000)?;
 
         let pipeline = pipeline::Graphics::builder()
             .vertex(&vertex)
@@ -308,26 +310,35 @@ impl Renderer {
 
         let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
 
+        let assets = world.get::<assets::Manager>().unwrap();
         let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
         let object_sets = entities
             .iter()
-            .map(|id| {
+            .zip(render_objects.iter())
+            .map(|(id, render_object)| {
                 let transform = world
                     .get_component::<Transform>(*id)
                     .map(|x| *x)
                     .unwrap_or_default();
+                let material = assets.get_material(render_object.material).unwrap();
                 let transform_buffer = Static::new(
                     &renderer.ctx,
                     bytemuck::cast_slice::<f32, u8>(&transform.matrix().to_cols_array()),
                     BufferUsageFlags::UNIFORM_BUFFER,
                 )
                 .unwrap();
+                let material_buffer = Static::new(
+                    &renderer.ctx,
+                    bytemuck::cast_slice::<Material, u8>(&[*material]),
+                    BufferUsageFlags::UNIFORM_BUFFER,
+                )
+                .unwrap();
                 let set = renderer.object_layout.alloc(&renderer.ctx).unwrap();
                 set.write_buffer(&renderer.ctx, 0, &transform_buffer);
-                (transform_buffer, set)
+                set.write_buffer(&renderer.ctx, 1, &material_buffer);
+                (transform_buffer, material_buffer, set)
             })
-            .collect::<Vec<(Static, descriptor::Set)>>();
-        let assets = world.get::<assets::Manager>().unwrap();
+            .collect::<Vec<_>>();
 
         let cmd = renderer
             .ctx
@@ -350,7 +361,7 @@ impl Renderer {
             render_objects
                 .iter()
                 .zip(object_sets.iter())
-                .fold(cmd, |cmd, (object, (_, set))| {
+                .fold(cmd, |cmd, (object, (_, _, set))| {
                     let mesh = assets.get_mesh(object.mesh).unwrap();
                     cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
                         .bind_index_buffer(&mesh.index_buffer)

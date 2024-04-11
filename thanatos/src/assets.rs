@@ -66,20 +66,8 @@ impl Mesh {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct MaterialData {
-    pub colour: Vec4,
-}
-
 pub struct Material {
-    pub buffer: Static,
-}
-
-impl Material {
-    pub fn load(material: MaterialData, renderer: &Renderer) -> Result<Self> {
-        let contents = bytemuck::bytes_of(&material);
-        let buffer = Static::new(&renderer.ctx, &contents, BufferUsageFlags::UNIFORM_BUFFER)?;
-        Ok(Self { buffer })
-    }
+    pub colour: Vec4,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -114,5 +102,12 @@ impl Manager {
 
     pub fn get_material(&self, id: MaterialId) -> Option<&Material> {
         self.materials.get(id.0)
+    }
+
+    pub fn destroy(self, renderer: &Renderer) {
+        self.meshes.into_iter().for_each(|mesh| {
+            mesh.vertex_buffer.destroy(&renderer.ctx.device);
+            mesh.index_buffer.destroy(&renderer.ctx.device);
+        });
     }
 }
