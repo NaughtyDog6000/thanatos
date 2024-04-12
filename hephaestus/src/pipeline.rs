@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use ash::{
     prelude::VkResult,
     vk::{
@@ -35,34 +37,39 @@ pub fn clear_depth(depth: f32) -> ClearValue {
 }
 
 pub struct ShaderModule {
+    device: Rc<Device>,
     pub handle: vk::ShaderModule,
 }
 
 impl ShaderModule {
-    pub fn new(device: &Device, code: &[u8]) -> VkResult<ShaderModule> {
+    pub fn new(device: &Rc<Device>, code: &[u8]) -> VkResult<ShaderModule> {
         let code = bytemuck::cast_slice::<u8, u32>(code);
         let create_info = ShaderModuleCreateInfo::builder().code(code);
         let handle = unsafe { device.create_shader_module(&create_info, None)? };
-        Ok(Self { handle })
+        Ok(Self { device: device.clone(), handle })
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_shader_module(self.handle, None) };
+impl Drop for ShaderModule {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_shader_module(self.handle, None) };
     }
 }
 
 pub struct Framebuffer {
+    device: Rc<Device>,
     pub handle: vk::Framebuffer,
     pub extent: Extent2D,
 }
 
-impl Framebuffer {
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_framebuffer(self.handle, None) };
+impl Drop for Framebuffer {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_framebuffer(self.handle, None) };
     }
 }
 
 pub struct RenderPass {
+    device: Rc<Device>,
     pub handle: vk::RenderPass,
 }
 
@@ -73,7 +80,7 @@ impl RenderPass {
 
     pub fn get_framebuffer(
         &self,
-        device: &Device,
+        device: &Rc<Device>,
         attachments: &[&ImageView],
     ) -> VkResult<Framebuffer> {
         let extent = attachments.first().unwrap().extent;
@@ -97,11 +104,13 @@ impl RenderPass {
             .layers(1);
 
         let handle = unsafe { device.create_framebuffer(&create_info, None)? };
-        Ok(Framebuffer { handle, extent })
+        Ok(Framebuffer { device: device.clone(), handle, extent })
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_render_pass(self.handle, None) }
+impl Drop for RenderPass {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_render_pass(self.handle, None) }
     }
 }
 
@@ -171,7 +180,7 @@ impl RenderPassBuilder {
         self.subpasses.push(subpass);
     }
 
-    pub fn build(self, device: &Device) -> VkResult<RenderPass> {
+    pub fn build(self, device: &Rc<Device>) -> VkResult<RenderPass> {
         let subpasses = self
             .subpasses
             .iter()
@@ -191,11 +200,12 @@ impl RenderPassBuilder {
             .subpasses(&subpasses);
         let handle = unsafe { device.create_render_pass(&create_info, None)? };
 
-        Ok(RenderPass { handle })
+        Ok(RenderPass { device: device.clone(), handle })
     }
 }
 
 pub struct Graphics {
+    device: Rc<Device>,
     pub layout: PipelineLayout,
     pub handle: Pipeline,
 }
@@ -204,10 +214,12 @@ impl Graphics {
     pub fn builder<'a>() -> GraphicsBuilder<'a> {
         GraphicsBuilder::default()
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_pipeline(self.handle, None) };
-        unsafe { device.destroy_pipeline_layout(self.layout, None) };
+impl Drop for Graphics {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_pipeline(self.handle, None) };
+        unsafe { self.device.destroy_pipeline_layout(self.layout, None) };
     }
 }
 
@@ -269,7 +281,7 @@ impl<'a> GraphicsBuilder<'a> {
         self
     }
 
-    pub fn build(self, device: &Device) -> VkResult<Graphics> {
+    pub fn build(self, device: &Rc<Device>) -> VkResult<Graphics> {
         let vertex_stage = PipelineShaderStageCreateInfo::builder()
             .stage(ShaderStageFlags::VERTEX)
             .module(self.vertex.expect("Missing vertex shader").handle)
@@ -399,7 +411,8 @@ impl<'a> GraphicsBuilder<'a> {
             device.create_graphics_pipelines(PipelineCache::null(), &[create_info], None)
         };
         match result {
-            Ok(handles) => Ok(Graphics {
+            Ok(handles) => Ok(Graphics{
+                device: device.clone(),
                 handle: *handles.first().unwrap(),
                 layout,
             }),

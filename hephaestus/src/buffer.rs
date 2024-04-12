@@ -1,5 +1,5 @@
 use core::slice;
-use std::ffi::c_void;
+use std::{ffi::c_void, rc::Rc};
 
 use ash::{
     prelude::VkResult,
@@ -11,7 +11,7 @@ use ash::{
 
 use crate::{
     command::Region,
-    task::{SubmitInfo, Task, Fence},
+    task::{Fence, SubmitInfo, Task},
     Context, Device,
 };
 
@@ -19,6 +19,20 @@ pub trait Buffer {
     fn buffer(&self) -> vk::Buffer;
     fn memory(&self) -> vk::DeviceMemory;
     fn size(&self) -> usize;
+}
+
+impl<T: Buffer> Buffer for Rc<T> {
+    fn size(&self) -> usize {
+        T::size(self)
+    }
+
+    fn memory(&self) -> vk::DeviceMemory {
+        T::memory(self)
+    }
+
+    fn buffer(&self) -> vk::Buffer {
+        T::buffer(self)
+    }
 }
 
 pub(crate) fn find_memory_type(
@@ -41,13 +55,14 @@ pub(crate) fn find_memory_type(
 }
 
 pub struct Dynamic {
+    device: Rc<Device>,
     pub handle: vk::Buffer,
     pub memory: vk::DeviceMemory,
     pub size: usize,
 }
 
 impl Dynamic {
-    pub fn new(ctx: &Context, size: usize, usage: BufferUsageFlags) -> VkResult<Self> {
+    pub fn new(ctx: &Context, size: usize, usage: BufferUsageFlags) -> VkResult<Rc<Self>> {
         let create_info = BufferCreateInfo::builder()
             .size(size as u64)
             .usage(usage)
@@ -69,27 +84,30 @@ impl Dynamic {
         let memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
         unsafe { ctx.device.bind_buffer_memory(handle, memory, 0)? };
 
-        Ok(Self {
+        Ok(Rc::new(Self {
+            device: ctx.device.clone(),
             handle,
             memory,
             size,
-        })
+        }))
     }
 
-    pub fn write(&self, device: &Device, data: &[u8]) -> VkResult<()> {
+    pub fn write(&self, data: &[u8]) -> VkResult<()> {
         let memory: *mut c_void = unsafe {
-            device.map_memory(self.memory, 0, data.len() as u64, MemoryMapFlags::default())?
+            self.device.map_memory(self.memory, 0, data.len() as u64, MemoryMapFlags::default())?
         };
         let memory: *mut u8 = memory.cast();
         unsafe { slice::from_raw_parts_mut(memory, data.len()).copy_from_slice(data) };
-        unsafe { device.unmap_memory(self.memory) };
+        unsafe { self.device.unmap_memory(self.memory) };
 
         Ok(())
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_buffer(self.handle, None) }
-        unsafe { device.free_memory(self.memory, None) }
+impl Drop for Dynamic {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_buffer(self.handle, None) }
+        unsafe { self.device.free_memory(self.memory, None) }
     }
 }
 
@@ -108,13 +126,14 @@ impl Buffer for Dynamic {
 }
 
 pub struct Static {
+    device: Rc<Device>,
     pub handle: vk::Buffer,
     pub memory: vk::DeviceMemory,
     pub size: usize,
 }
 
 impl Static {
-    pub fn new(ctx: &Context, data: &[u8], usage: BufferUsageFlags) -> VkResult<Self> {
+    pub fn new(ctx: &Context, data: &[u8], usage: BufferUsageFlags) -> VkResult<Rc<Self>> {
         let size = data.len();
         let create_info = BufferCreateInfo::builder()
             .size(size as u64)
@@ -133,9 +152,10 @@ impl Static {
         unsafe { ctx.device.bind_buffer_memory(handle, memory, 0)? };
 
         let staging = Dynamic::new(ctx, size, BufferUsageFlags::TRANSFER_SRC)?;
-        staging.write(&ctx.device, data)?;
+        staging.write(data)?;
 
         let buffer = Self {
+            device: ctx.device.clone(),
             handle,
             memory,
             size,
@@ -143,8 +163,8 @@ impl Static {
 
         let cmd = ctx
             .command_pool
-            .alloc(&ctx.device)?
-            .begin(&ctx.device)?
+            .alloc()?
+            .begin()?
             .copy_buffer(
                 &staging,
                 &buffer,
@@ -168,14 +188,14 @@ impl Static {
         })?;
         fence.wait()?;
 
-        staging.destroy(&ctx.device);
-
-        Ok(buffer)
+        Ok(Rc::new(buffer))
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_buffer(self.handle, None) }
-        unsafe { device.free_memory(self.memory, None) }
+impl Drop for Static {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_buffer(self.handle, None) }
+        unsafe { self.device.free_memory(self.memory, None) }
     }
 }
 

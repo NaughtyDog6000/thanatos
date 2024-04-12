@@ -137,11 +137,10 @@ async fn main() -> Result<()> {
         world.tick();
     }
 
-    let renderer = world.remove::<Renderer>().unwrap();
-    unsafe { renderer.ctx.device.device_wait_idle(); }
-    let manager = world.remove::<assets::Manager>().unwrap();
-    manager.destroy(&renderer);
-    renderer.destroy();
+    // Remove early to drop GPU resources
+    {
+        world.remove::<assets::Manager>().unwrap();
+    }
 
     Ok(())
 }

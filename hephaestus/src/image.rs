@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use ash::{
     prelude::VkResult,
     vk::{
@@ -11,6 +13,7 @@ use ash::{
 use crate::{buffer::find_memory_type, Context, Device};
 
 pub struct Image {
+    device: Rc<Device>,
     pub handle: vk::Image,
     pub memory: DeviceMemory,
 }
@@ -48,23 +51,26 @@ impl Image {
         let memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
         unsafe { ctx.device.bind_image_memory(handle, memory, 0)? };
 
-        Ok(Self { handle, memory })
+        Ok(Self { device: ctx.device.clone(), handle, memory })
     }
+}
 
-    pub fn destroy(self, ctx: &Context) {
-        unsafe { ctx.device.destroy_image(self.handle, None) }
-        unsafe { ctx.device.free_memory(self.memory, None) }
+impl Drop for Image {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_image(self.handle, None) }
+        unsafe { self.device.free_memory(self.memory, None) }
     }
 }
 
 pub struct ImageView {
+    device: Rc<Device>,
     pub handle: vk::ImageView,
     pub extent: Extent2D,
 }
 
 impl ImageView {
     pub fn new(
-        device: &Device,
+        device: &Rc<Device>,
         image: vk::Image,
         format: Format,
         aspect: ImageAspectFlags,
@@ -85,10 +91,12 @@ impl ImageView {
                     .build(),
             );
         let handle = unsafe { device.create_image_view(&create_info, None)? };
-        Ok(Self { handle, extent })
+        Ok(Self { device: device.clone(), handle, extent })
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_image_view(self.handle, None) };
+impl Drop for ImageView {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_image_view(self.handle, None) };
     }
 }

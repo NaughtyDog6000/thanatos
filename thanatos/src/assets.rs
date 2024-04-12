@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, rc::Rc};
 
 use anyhow::Result;
 use glam::{Vec3, Vec4};
@@ -8,8 +8,8 @@ use hephaestus::{buffer::Static, BufferUsageFlags};
 use crate::graphics::{Renderer, Vertex};
 
 pub struct Mesh {
-    pub vertex_buffer: Static,
-    pub index_buffer: Static,
+    pub vertex_buffer: Rc<Static>,
+    pub index_buffer: Rc<Static>,
     pub num_indices: u32,
 }
 
@@ -102,12 +102,5 @@ impl Manager {
 
     pub fn get_material(&self, id: MaterialId) -> Option<&Material> {
         self.materials.get(id.0)
-    }
-
-    pub fn destroy(self, renderer: &Renderer) {
-        self.meshes.into_iter().for_each(|mesh| {
-            mesh.vertex_buffer.destroy(&renderer.ctx.device);
-            mesh.index_buffer.destroy(&renderer.ctx.device);
-        });
     }
 }

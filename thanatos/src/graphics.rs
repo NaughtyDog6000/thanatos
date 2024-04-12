@@ -42,46 +42,32 @@ impl Vertex {
 
 struct Frame {
     task: Task,
-    cmd: command::Buffer,
     fence: Rc<Fence>,
-    camera_buffer: Static,
-    camera_set: descriptor::Set,
-    object_sets: Vec<(Static, Static, descriptor::Set)>,
 }
 
-impl Frame {
-    fn destroy(self, ctx: &Context) {
+impl Drop for Frame {
+    fn drop(&mut self) {
         self.fence.wait().unwrap();
-        self.cmd.destroy(&ctx.device, &ctx.command_pool);
-        self.camera_set.destroy(&ctx);
-        self.camera_buffer.destroy(&ctx.device);
-        self.object_sets
-            .into_iter()
-            .for_each(|(transform_buffer, material_buffer, set)| {
-                set.destroy(&ctx);
-                transform_buffer.destroy(&ctx.device);
-                material_buffer.destroy(&ctx.device);
-            });
     }
 }
 
 pub struct RenderObject {
     pub mesh: MeshId,
-    pub material: MaterialId
+    pub material: MaterialId,
 }
 
 pub struct Renderer {
-    pub ctx: Context,
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
     framebuffers: Vec<Framebuffer>,
     semaphores: Vec<Rc<Semaphore>>,
     frame_index: usize,
     tasks: VecDeque<Frame>,
-    camera_layout: descriptor::Layout,
-    object_layout: descriptor::Layout,
+    camera_layout: Rc<descriptor::Layout>,
+    object_layout: Rc<descriptor::Layout>,
     depth_images: Vec<Image>,
     depth_views: Vec<ImageView>,
+    pub ctx: Context,
 }
 
 impl Renderer {
@@ -104,7 +90,7 @@ impl Renderer {
         let render_pass = {
             let mut builder = RenderPass::builder();
             let colour = builder.attachment(
-                ctx.swapchain.format,
+                ctx.swapchain.as_ref().unwrap().format,
                 ImageLayout::UNDEFINED,
                 ImageLayout::PRESENT_SRC_KHR,
             );
@@ -122,7 +108,8 @@ impl Renderer {
         };
 
         let camera_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
-        let object_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER; 2], 1000)?;
+        let object_layout =
+            descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER; 2], 1000)?;
 
         let pipeline = pipeline::Graphics::builder()
             .vertex(&vertex)
@@ -135,13 +122,12 @@ impl Renderer {
             .depth()
             .build(&ctx.device)?;
 
-        vertex.destroy(&ctx.device);
-        fragment.destroy(&ctx.device);
-
         let (depth_images, depth_views) = Self::create_depth_images(&ctx)?;
 
         let framebuffers = ctx
             .swapchain
+            .as_ref()
+            .unwrap()
             .views
             .iter()
             .zip(&depth_views)
@@ -174,13 +160,15 @@ impl Renderer {
     fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Image>, Vec<ImageView>)> {
         let depth_images = ctx
             .swapchain
+            .as_ref()
+            .unwrap()
             .views
             .iter()
             .map(|_| {
                 Image::new(
                     &ctx,
                     Format::D32_SFLOAT,
-                    ctx.swapchain.extent,
+                    ctx.swapchain.as_ref().unwrap().extent,
                     ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
                 )
             })
@@ -194,35 +182,12 @@ impl Renderer {
                     image.handle,
                     Format::D32_SFLOAT,
                     ImageAspectFlags::DEPTH,
-                    ctx.swapchain.extent,
+                    ctx.swapchain.as_ref().unwrap().extent,
                 )
             })
             .collect::<VkResult<Vec<_>>>()?;
 
         Ok((depth_images, depth_views))
-    }
-
-    pub fn destroy(self) {
-        unsafe { self.ctx.device.device_wait_idle().unwrap() };
-        self.tasks
-            .into_iter()
-            .for_each(|frame| frame.destroy(&self.ctx));
-
-        self.framebuffers
-            .into_iter()
-            .for_each(|framebuffer| framebuffer.destroy(&self.ctx.device));
-        self.depth_views
-            .into_iter()
-            .for_each(|view| view.destroy(&self.ctx.device));
-        self.depth_images
-            .into_iter()
-            .for_each(|image| image.destroy(&self.ctx));
-
-        self.pipeline.destroy(&self.ctx.device);
-        self.object_layout.destroy(&self.ctx);
-        self.camera_layout.destroy(&self.ctx);
-        self.render_pass.destroy(&self.ctx.device);
-        self.ctx.destroy();
     }
 
     pub fn recreate_swapchain(&mut self, size: (u32, u32)) -> VkResult<()> {
@@ -233,15 +198,9 @@ impl Renderer {
         };
         self.ctx.recreate_swapchain().unwrap();
 
-        self.framebuffers
-            .drain(..)
-            .for_each(|framebuffer| framebuffer.destroy(&self.ctx.device));
-        self.depth_views
-            .drain(..)
-            .for_each(|view| view.destroy(&self.ctx.device));
-        self.depth_images
-            .drain(..)
-            .for_each(|image| image.destroy(&self.ctx));
+        self.framebuffers.clear();
+        self.depth_views.clear();
+        self.depth_images.clear();
 
         let (depth_images, depth_views) = Self::create_depth_images(&self.ctx)?;
         self.depth_images = depth_images;
@@ -250,6 +209,8 @@ impl Renderer {
         self.framebuffers = self
             .ctx
             .swapchain
+            .as_ref()
+            .unwrap()
             .views
             .iter()
             .zip(&self.depth_views)
@@ -266,7 +227,7 @@ impl Renderer {
         let mut renderer = world.get_mut::<Renderer>().unwrap();
         if renderer.tasks.len() > Renderer::FRAMES_IN_FLIGHT {
             let frame = renderer.tasks.pop_front().unwrap();
-            frame.destroy(&renderer.ctx);
+            drop(frame);
         }
 
         let mut task = Task::new();
@@ -277,7 +238,7 @@ impl Renderer {
         let (image_index, suboptimal) = task
             .acquire_next_image(
                 &renderer.ctx.device,
-                &renderer.ctx.swapchain,
+                renderer.ctx.swapchain.as_ref().unwrap(),
                 image_available.clone(),
             )
             .unwrap();
@@ -300,8 +261,12 @@ impl Renderer {
             BufferUsageFlags::UNIFORM_BUFFER,
         )
         .unwrap();
-        let camera_set = renderer.camera_layout.alloc(&renderer.ctx).unwrap();
-        camera_set.write_buffer(&renderer.ctx, 0, &camera_buffer);
+        let camera_set = renderer
+            .camera_layout
+            .alloc()
+            .unwrap()
+            .write_buffer(0, &camera_buffer)
+            .finish();
 
         let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
 
@@ -328,9 +293,13 @@ impl Renderer {
                     BufferUsageFlags::UNIFORM_BUFFER,
                 )
                 .unwrap();
-                let set = renderer.object_layout.alloc(&renderer.ctx).unwrap();
-                set.write_buffer(&renderer.ctx, 0, &transform_buffer);
-                set.write_buffer(&renderer.ctx, 1, &material_buffer);
+                let set = renderer
+                    .object_layout
+                    .alloc()
+                    .unwrap()
+                    .write_buffer(0, &transform_buffer)
+                    .write_buffer(1, &material_buffer)
+                    .finish();
                 (transform_buffer, material_buffer, set)
             })
             .collect::<Vec<_>>();
@@ -338,9 +307,9 @@ impl Renderer {
         let cmd = renderer
             .ctx
             .command_pool
-            .alloc(&renderer.ctx.device)
+            .alloc()
             .unwrap()
-            .begin(&renderer.ctx.device)
+            .begin()
             .unwrap()
             .begin_render_pass(
                 &renderer.render_pass,
@@ -352,17 +321,16 @@ impl Renderer {
             .set_scissor(size.width, size.height)
             .bind_descriptor_set(&camera_set, 0);
 
-        let cmd =
-            render_objects
-                .iter()
-                .zip(object_sets.iter())
-                .fold(cmd, |cmd, (object, (_, _, set))| {
-                    let mesh = assets.get_mesh(object.mesh).unwrap();
-                    cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
-                        .bind_index_buffer(&mesh.index_buffer)
-                        .bind_descriptor_set(set, 1)
-                        .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
-                });
+        let cmd = render_objects.iter().zip(object_sets.iter()).fold(
+            cmd,
+            |cmd, (object, (_, _, set))| {
+                let mesh = assets.get_mesh(object.mesh).unwrap();
+                cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
+                    .bind_index_buffer(&mesh.index_buffer)
+                    .bind_descriptor_set(set, 1)
+                    .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
+            },
+        );
 
         let cmd = cmd.end_render_pass().end().unwrap();
 
@@ -379,7 +347,7 @@ impl Renderer {
         let suboptimal = task
             .present(
                 &renderer.ctx.device,
-                &renderer.ctx.swapchain,
+                renderer.ctx.swapchain.as_ref().unwrap(),
                 image_index,
                 &[render_finished],
             )
@@ -394,13 +362,15 @@ impl Renderer {
 
         renderer.tasks.push_back(Frame {
             task,
-            cmd,
             fence: in_flight,
-            camera_buffer,
-            camera_set,
-            object_sets,
         });
 
         renderer.frame_index += 1;
+    }
+}
+
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        unsafe { self.ctx.device.device_wait_idle().unwrap() }
     }
 }

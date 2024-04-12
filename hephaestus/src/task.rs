@@ -61,12 +61,13 @@ impl Drop for Semaphore {
 pub struct Task {
     semaphores: Vec<Rc<Semaphore>>,
     fences: Vec<Rc<Fence>>,
+    cmds: Vec<Rc<command::Buffer>>
 }
 
 pub struct SubmitInfo<'a> {
     pub device: &'a Device,
     pub queue: &'a Queue,
-    pub cmd: &'a command::Buffer,
+    pub cmd: &'a Rc<command::Buffer>,
     pub wait: &'a [(Rc<Semaphore>, PipelineStageFlags)],
     pub signal: &'a [Rc<Semaphore>],
     pub fence: Rc<Fence>,
@@ -137,6 +138,7 @@ impl Task {
         self.semaphores
             .extend_from_slice(&info.signal);
         self.fences.push(info.fence);
+        self.cmds.push(info.cmd.clone());
 
         Ok(())
     }
