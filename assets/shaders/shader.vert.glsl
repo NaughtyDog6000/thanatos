@@ -13,7 +13,11 @@ layout(set = 1, binding = 0) uniform Transform {
     mat4 transform;
 } transform;
 
+layout(set = 1, binding = 1) uniform Material {
+    vec4 colour;
+} material;
+
 void main() {
     gl_Position = camera.viewProj * transform.transform * vec4(position, 1.0);
-    fragColor = normal * 0.5 + 0.5;
+    fragColor = material.colour.rgb * (0.5 + 0.5 * max(dot(normal, vec3(1.0)), 0.0));
 }

@@ -1,3 +1,5 @@
+use std::{any::Any, rc::Rc};
+
 use ash::{
     prelude::VkResult,
     vk::{
@@ -7,22 +9,24 @@ use ash::{
     },
 };
 
-use crate::{buffer, Context};
+use crate::{buffer, Context, Device};
 
 #[derive(Clone)]
 pub struct Layout {
+    device: Rc<Device>,
     pub layout: vk::DescriptorSetLayout,
     pub pool: vk::DescriptorPool,
     pub bindings: Vec<DescriptorType>,
 }
 
 pub struct Set {
-    layout: Layout,
+    layout: Rc<Layout>,
     pub handle: vk::DescriptorSet,
+    resources: Vec<Rc<dyn Any>>,
 }
 
 impl Layout {
-    pub fn new(ctx: &Context, bindings: &[DescriptorType], capacity: usize) -> VkResult<Self> {
+    pub fn new(ctx: &Context, bindings: &[DescriptorType], capacity: usize) -> VkResult<Rc<Self>> {
         let binding_infos = bindings
             .iter()
             .enumerate()
@@ -57,33 +61,37 @@ impl Layout {
             .max_sets(capacity as u32);
         let pool = unsafe { ctx.device.create_descriptor_pool(&create_info, None)? };
 
-        Ok(Self {
+        Ok(Rc::new(Self {
+            device: ctx.device.clone(),
             layout,
             pool,
             bindings: bindings.to_vec(),
-        })
+        }))
     }
 
-    pub fn alloc(&self, ctx: &Context) -> VkResult<Set> {
+    pub fn alloc(self: &Rc<Self>) -> VkResult<Set> {
         let set_layouts = [self.layout];
         let alloc_info = DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.pool)
             .set_layouts(&set_layouts);
-        let handle = unsafe { ctx.device.allocate_descriptor_sets(&alloc_info)?[0] };
+        let handle = unsafe { self.device.allocate_descriptor_sets(&alloc_info)?[0] };
         Ok(Set {
             handle,
             layout: self.clone(),
+            resources: Vec::new(),
         })
     }
+}
 
-    pub fn destroy(self, ctx: &Context) {
-        unsafe { ctx.device.destroy_descriptor_pool(self.pool, None) }
-        unsafe { ctx.device.destroy_descriptor_set_layout(self.layout, None) }
+impl Drop for Layout {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_descriptor_pool(self.pool, None) }
+        unsafe { self.device.destroy_descriptor_set_layout(self.layout, None) }
     }
 }
 
 impl Set {
-    pub fn write_buffer<T: buffer::Buffer>(&self, ctx: &Context, binding: usize, buffer: &T) {
+    pub fn write_buffer<T: buffer::Buffer + 'static>(mut self, binding: usize, buffer: &Rc<T>) -> Self {
         let buffer_info = DescriptorBufferInfo {
             buffer: buffer.buffer(),
             offset: 0,
@@ -97,12 +105,26 @@ impl Set {
             .dst_array_element(0)
             .descriptor_type(self.layout.bindings[binding])
             .buffer_info(&buffer_infos);
-        unsafe { ctx.device.update_descriptor_sets(&[*write_info], &[]) }
+        unsafe {
+            self.layout
+                .device
+                .update_descriptor_sets(&[*write_info], &[])
+        }
+
+        self.resources.push(buffer.clone());
+        self
     }
 
-    pub fn destroy(self, ctx: &Context) {
+    pub fn finish(self) -> Rc<Self> {
+        Rc::new(self)
+    }
+}
+
+impl Drop for Set {
+    fn drop(&mut self) {
         unsafe {
-            ctx.device
+            self.layout
+                .device
                 .free_descriptor_sets(self.layout.pool, &[self.handle])
                 .unwrap()
         }

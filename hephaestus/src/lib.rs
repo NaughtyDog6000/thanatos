@@ -10,6 +10,7 @@ use std::{
     collections::HashSet,
     ffi::{c_char, CStr, CString},
     ops::Deref,
+    rc::Rc,
 };
 
 pub use ash::prelude::VkResult;
@@ -64,6 +65,7 @@ pub struct PhysicalDevice {
 }
 
 pub struct Surface {
+    instance: Rc<Instance>,
     pub handle: vk::SurfaceKHR,
     pub extent: Extent2D,
     pub capabilities: SurfaceCapabilitiesKHR,
@@ -74,7 +76,7 @@ pub struct Surface {
 impl Surface {
     pub fn new<T: HasRawDisplayHandle + HasRawWindowHandle>(
         entry: &Entry,
-        instance: &Instance,
+        instance: &Rc<Instance>,
         physical: &PhysicalDevice,
         window: T,
         extent: (u32, u32),
@@ -102,6 +104,7 @@ impl Surface {
                 .get_physical_device_surface_present_modes(physical.handle, handle)?;
 
             Ok(Surface {
+                instance: instance.clone(),
                 handle,
                 capabilities,
                 formats,
@@ -113,10 +116,12 @@ impl Surface {
             })
         }
     }
+}
 
-    pub fn destroy(self, instance: &Instance) {
+impl Drop for Surface {
+    fn drop(&mut self) {
         unsafe {
-            instance
+            self.instance
                 .extensions
                 .surface
                 .destroy_surface(self.handle, None)
@@ -195,8 +200,10 @@ impl Instance {
             queue_families,
         })
     }
+}
 
-    pub fn destroy(self) {
+impl Drop for Instance {
+    fn drop(&mut self) {
         unsafe { self.destroy_instance(None) }
     }
 }
@@ -238,6 +245,7 @@ impl Deref for Device {
 }
 
 pub struct Swapchain {
+    device: Rc<Device>,
     pub handle: SwapchainKHR,
     pub images: Vec<Image>,
     pub views: Vec<ImageView>,
@@ -246,7 +254,7 @@ pub struct Swapchain {
 }
 
 impl Swapchain {
-    pub fn new(device: &Device, surface: &Surface) -> VkResult<Self> {
+    pub fn new(device: &Rc<Device>, surface: &Surface) -> VkResult<Self> {
         let format = surface
             .formats
             .iter()
@@ -328,6 +336,7 @@ impl Swapchain {
             .collect::<VkResult<Vec<_>>>()?;
 
         Ok(Swapchain {
+            device: device.clone(),
             handle,
             images,
             views,
@@ -335,20 +344,16 @@ impl Swapchain {
             extent,
         })
     }
+}
 
-    pub(crate) fn delete(&mut self, device: &Device) {
-        self.views.drain(..).for_each(|view| view.destroy(device));
-
+impl Drop for Swapchain {
+    fn drop(&mut self) {
         unsafe {
-            device
+            self.device
                 .extensions
                 .swapchain
                 .destroy_swapchain(self.handle, None)
         };
-    }
-
-    pub fn destroy(mut self, device: &Device) {
-        self.delete(device);
     }
 }
 
@@ -424,19 +429,21 @@ impl Device {
             queues,
         })
     }
+}
 
-    pub fn destroy(self) {
+impl Drop for Device {
+    fn drop(&mut self) {
         unsafe { self.destroy_device(None) }
     }
 }
 
 pub struct Context {
-    pub entry: Entry,
-    pub instance: Instance,
+    pub swapchain: Option<Swapchain>,
+    pub command_pool: Rc<command::Pool>,
+    pub device: Rc<Device>,
     pub surface: Surface,
-    pub device: Device,
-    pub swapchain: Swapchain,
-    pub command_pool: command::Pool,
+    pub instance: Rc<Instance>,
+    pub entry: Entry,
 }
 
 impl Context {
@@ -447,11 +454,11 @@ impl Context {
     ) -> VkResult<Self> {
         let entry = Entry::linked();
         let name = CString::new(name).unwrap();
-        let instance = Instance::new(&entry, &name, &window)?;
+        let instance = Rc::new(Instance::new(&entry, &name, &window)?);
         let physical = unsafe { instance.get_physical_device()? };
         let surface = Surface::new(&entry, &instance, &physical, window, extent)?;
-        let device = Device::new(&instance, physical, &surface)?;
-        let swapchain = Swapchain::new(&device, &surface)?;
+        let device = Rc::new(Device::new(&instance, physical, &surface)?);
+        let swapchain = Some(Swapchain::new(&device, &surface)?);
         let command_pool = command::Pool::new(&device, &device.queues.graphics)?;
 
         Ok(Self {
@@ -496,16 +503,8 @@ impl Context {
 
     pub fn recreate_swapchain(&mut self) -> VkResult<()> {
         self.refresh_surface()?;
-        self.swapchain.delete(&self.device);
-        self.swapchain = Swapchain::new(&self.device, &self.surface)?;
+        drop(self.swapchain.take());
+        self.swapchain = Some(Swapchain::new(&self.device, &self.surface)?);
         Ok(())
-    }
-
-    pub fn destroy(self) {
-        self.command_pool.destroy(&self.device);
-        self.swapchain.destroy(&self.device);
-        self.device.destroy();
-        self.surface.destroy(&self.instance);
-        self.instance.destroy();
     }
 }

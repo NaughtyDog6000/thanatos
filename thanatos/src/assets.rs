@@ -1,15 +1,15 @@
-use std::path::Path;
+use std::{path::Path, rc::Rc};
 
 use anyhow::Result;
 use glam::{Vec3, Vec4};
 use gltf::Glb;
 use hephaestus::{buffer::Static, BufferUsageFlags};
 
-use crate::graphics::{Renderer, Vertex};
+use crate::renderer::{Renderer, Vertex};
 
 pub struct Mesh {
-    pub vertex_buffer: Static,
-    pub index_buffer: Static,
+    pub vertex_buffer: Rc<Static>,
+    pub index_buffer: Rc<Static>,
     pub num_indices: u32,
 }
 
@@ -66,20 +66,8 @@ impl Mesh {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct MaterialData {
-    pub colour: Vec4,
-}
-
 pub struct Material {
-    pub buffer: Static,
-}
-
-impl Material {
-    pub fn load(material: MaterialData, renderer: &Renderer) -> Result<Self> {
-        let contents = bytemuck::bytes_of(&material);
-        let buffer = Static::new(&renderer.ctx, &contents, BufferUsageFlags::UNIFORM_BUFFER)?;
-        Ok(Self { buffer })
-    }
+    pub colour: Vec4,
 }
 
 #[derive(Clone, Copy, Debug)]

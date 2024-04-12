@@ -42,7 +42,7 @@ pub trait Archetype: Any {
 
 #[macro_export]
 macro_rules! impl_archetype {
-    (struct $for:ident { $( $field:ident: $type:ty ),* $(,)?}) => {
+    ($(pub )?struct $for:ident { $( pub $field:ident: $type:ty ),* $(,)?}) => {
         /*
         concat_idents::concat_idents!(for_ref = $for, Ref {
             pub struct for_ref<'a> {
@@ -396,6 +396,10 @@ impl<E> Default for World<E> {
 impl<E> World<E> {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with<F: FnOnce(Self) -> Self>(self, f: F) -> Self {
+        f(self)
     }
 
     pub fn with_system<T: System<E> + 'static>(mut self, system: T) -> Self {

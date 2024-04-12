@@ -1,3 +1,5 @@
+use std::{any::Any, rc::Rc};
+
 use ash::{
     prelude::VkResult,
     vk::{
@@ -20,23 +22,29 @@ pub struct Region {
 }
 
 pub struct Buffer {
+    device: Rc<Device>,
+    pool: Rc<Pool>,
     pub handle: vk::CommandBuffer,
+    resources: Vec<Rc<dyn Any>>
 }
 
 impl Buffer {
-    pub fn begin(self, device: &Device) -> VkResult<Recorder> {
+    pub fn begin<'a>(self) -> VkResult<Recorder<'a>> {
         let begin_info = CommandBufferBeginInfo::default();
-        unsafe { device.begin_command_buffer(self.handle, &begin_info)? };
+        unsafe { self.device.begin_command_buffer(self.handle, &begin_info)? };
         Ok(Recorder {
             buffer: self,
-            device,
             pipeline: None,
         })
     }
+}
 
-    pub fn destroy(self, device: &Device, pool: &Pool) {
-        let buffers = [self.handle];
-        unsafe { device.free_command_buffers(pool.handle, &buffers) }
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe {
+            self.device
+                .free_command_buffers(self.pool.handle, &[self.handle])
+        }
     }
 }
 
@@ -60,14 +68,13 @@ impl Pipeline<'_> {
 
 pub struct Recorder<'a> {
     buffer: Buffer,
-    device: &'a Device,
     pipeline: Option<Pipeline<'a>>,
 }
 
 impl<'a> Recorder<'a> {
-    pub fn end(self) -> VkResult<Buffer> {
-        unsafe { self.device.end_command_buffer(self.buffer.handle)? };
-        Ok(self.buffer)
+    pub fn end(self) -> VkResult<Rc<Buffer>> {
+        unsafe { self.buffer.device.end_command_buffer(self.buffer.handle)? };
+        Ok(Rc::new(self.buffer))
     }
 
     pub fn begin_render_pass(
@@ -85,7 +92,7 @@ impl<'a> Recorder<'a> {
             })
             .clear_values(clear_values);
         unsafe {
-            self.device.cmd_begin_render_pass(
+            self.buffer.device.cmd_begin_render_pass(
                 self.buffer.handle,
                 &render_pass_begin,
                 SubpassContents::INLINE,
@@ -95,14 +102,14 @@ impl<'a> Recorder<'a> {
     }
 
     pub fn end_render_pass(self) -> Self {
-        unsafe { self.device.cmd_end_render_pass(self.buffer.handle) };
+        unsafe { self.buffer.device.cmd_end_render_pass(self.buffer.handle) };
         self
     }
 
     pub fn bind_graphics_pipeline(mut self, pipeline: &'a Graphics) -> Self {
         self.pipeline = Some(Pipeline::Graphics(pipeline));
         unsafe {
-            self.device.cmd_bind_pipeline(
+            self.buffer.device.cmd_bind_pipeline(
                 self.buffer.handle,
                 PipelineBindPoint::GRAPHICS,
                 pipeline.handle,
@@ -119,7 +126,7 @@ impl<'a> Recorder<'a> {
         first_instance: u32,
     ) -> Self {
         unsafe {
-            self.device.cmd_draw(
+            self.buffer.device.cmd_draw(
                 self.buffer.handle,
                 vertices,
                 instances,
@@ -139,7 +146,7 @@ impl<'a> Recorder<'a> {
         first_instance: u32,
     ) -> Self {
         unsafe {
-            self.device.cmd_draw_indexed(
+            self.buffer.device.cmd_draw_indexed(
                 self.buffer.handle,
                 indices,
                 instances,
@@ -162,7 +169,8 @@ impl<'a> Recorder<'a> {
             .build();
         let viewports = [viewport];
         unsafe {
-            self.device
+            self.buffer
+                .device
                 .cmd_set_viewport(self.buffer.handle, 0, &viewports)
         }
         self
@@ -175,40 +183,43 @@ impl<'a> Recorder<'a> {
             .build();
         let scissors = [scissor];
         unsafe {
-            self.device
+            self.buffer
+                .device
                 .cmd_set_scissor(self.buffer.handle, 0, &scissors)
         }
         self
     }
 
-    pub fn bind_vertex_buffer<T: buffer::Buffer>(self, buffer: &T, binding: u32) -> Self {
+    pub fn bind_vertex_buffer<T: buffer::Buffer + 'static>(mut self, buffer: &Rc<T>, binding: u32) -> Self {
         unsafe {
-            self.device.cmd_bind_vertex_buffers(
+            self.buffer.device.cmd_bind_vertex_buffers(
                 self.buffer.handle,
                 binding,
                 &[buffer.buffer()],
                 &[0],
             )
         }
+        self.buffer.resources.push(buffer.clone());
         self
     }
 
-    pub fn bind_index_buffer<T: buffer::Buffer>(self, buffer: &T) -> Self {
+    pub fn bind_index_buffer<T: buffer::Buffer + 'static>(mut self, buffer: &Rc<T>) -> Self {
         unsafe {
-            self.device.cmd_bind_index_buffer(
+            self.buffer.device.cmd_bind_index_buffer(
                 self.buffer.handle,
                 buffer.buffer(),
                 0,
                 IndexType::UINT32,
             )
         }
+        self.buffer.resources.push(buffer.clone());
         self
     }
 
-    pub fn bind_descriptor_set(self, set: &descriptor::Set, index: usize) -> Self {
+    pub fn bind_descriptor_set(mut self, set: &Rc<descriptor::Set>, index: usize) -> Self {
         let pipeline = self.pipeline.as_ref().expect("No pipeline bound");
         unsafe {
-            self.device.cmd_bind_descriptor_sets(
+            self.buffer.device.cmd_bind_descriptor_sets(
                 self.buffer.handle,
                 pipeline.bind_point(),
                 pipeline.layout(),
@@ -217,6 +228,7 @@ impl<'a> Recorder<'a> {
                 &[],
             )
         }
+        self.buffer.resources.push(set.clone());
         self
     }
 
@@ -231,35 +243,50 @@ impl<'a> Recorder<'a> {
             .dst_offset(region.to_offset as u64)
             .size(region.size as u64);
         unsafe {
-            self.device
-                .cmd_copy_buffer(self.buffer.handle, from.buffer(), to.buffer(), &[*region])
+            self.buffer.device.cmd_copy_buffer(
+                self.buffer.handle,
+                from.buffer(),
+                to.buffer(),
+                &[*region],
+            )
         }
         self
     }
 }
 
 pub struct Pool {
+    device: Rc<Device>,
     pub handle: vk::CommandPool,
 }
 
 impl Pool {
-    pub fn new(device: &Device, queue: &Queue) -> VkResult<Self> {
+    pub fn new(device: &Rc<Device>, queue: &Queue) -> VkResult<Rc<Self>> {
         let create_info = CommandPoolCreateInfo::builder().queue_family_index(queue.index);
         let handle = unsafe { device.create_command_pool(&create_info, None)? };
-        Ok(Self { handle })
+        Ok(Rc::new(Self {
+            handle,
+            device: device.clone(),
+        }))
     }
 
-    pub fn alloc(&self, device: &Device) -> VkResult<Buffer> {
+    pub fn alloc(self: &Rc<Self>) -> VkResult<Buffer> {
         let alloc_info = CommandBufferAllocateInfo::builder()
             .command_pool(self.handle)
             .level(CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
-        let handles = unsafe { device.allocate_command_buffers(&alloc_info)? };
+        let handles = unsafe { self.device.allocate_command_buffers(&alloc_info)? };
         let handle = *handles.first().unwrap();
-        Ok(Buffer { handle })
+        Ok(Buffer {
+            resources: Vec::new(),
+            handle,
+            pool: self.clone(),
+            device: self.device.clone(),
+        })
     }
+}
 
-    pub fn destroy(self, device: &Device) {
-        unsafe { device.destroy_command_pool(self.handle, None) }
+impl Drop for Pool {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_command_pool(self.handle, None) }
     }
 }
