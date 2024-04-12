@@ -5,7 +5,7 @@ use glam::{Vec3, Vec4};
 use gltf::Glb;
 use hephaestus::{buffer::Static, BufferUsageFlags};
 
-use crate::graphics::{Renderer, Vertex};
+use crate::renderer::{Renderer, Vertex};
 
 pub struct Mesh {
     pub vertex_buffer: Rc<Static>,

@@ -2,7 +2,10 @@ mod assets;
 mod camera;
 mod collider;
 mod event;
-mod graphics;
+mod gather;
+mod item;
+mod player;
+mod renderer;
 mod transform;
 mod window;
 
@@ -11,10 +14,13 @@ use std::time::{Duration, Instant};
 use crate::{camera::Camera, collider::Ray, window::Window};
 use anyhow::Result;
 use assets::{Material, Mesh};
-use collider::Collider;
+use collider::{Collider, ColliderKind};
 use event::Event;
+use gather::{Gatherable, LootTable};
 use glam::{Vec2, Vec3, Vec4};
-use graphics::{RenderObject, Renderer};
+use item::{Inventory, Item, ItemStack};
+use player::Player;
+use renderer::{RenderObject, Renderer};
 use tecs::impl_archetype;
 use thanatos_macros::Archetype;
 use transform::Transform;
@@ -23,14 +29,38 @@ use winit::event::MouseButton;
 
 #[derive(Archetype)]
 struct CopperOre {
-    render: RenderObject,
-    transform: Transform,
-    collider: Collider,
+    pub render: RenderObject,
+    pub transform: Transform,
+    pub gatherable: Gatherable,
 }
 
 #[derive(Archetype)]
 struct Tree {
-    render: RenderObject,
+    pub render: RenderObject,
+}
+
+struct Timer {
+    start: Option<Instant>,
+    pub duration: Duration,
+}
+
+impl Timer {
+    pub fn new(duration: Duration) -> Self {
+        Self {
+            start: None,
+            duration,
+        }
+    }
+
+    pub fn start(&mut self) {
+        self.start = Some(Instant::now())
+    }
+
+    pub fn done(&self) -> bool {
+        self.start
+            .map(|start| start.elapsed() > self.duration)
+            .unwrap_or(true)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -72,7 +102,7 @@ fn raycast_test(world: &mut World) {
     if mouse.is_down(MouseButton::Left) {
         let camera = world.get::<Camera>().unwrap();
         let world_pos = camera.ndc_to_world(window.screen_to_ndc(mouse.position));
-        let ray = Ray::from_points(camera.eye, world_pos);
+        let ray = Ray::from_points(camera.eye(), world_pos);
 
         let colliders = world.query::<&Collider>();
         colliders.iter().for_each(|collider| {
@@ -93,12 +123,16 @@ async fn main() -> Result<()> {
     let camera = Camera::new(&window);
 
     let mut assets = assets::Manager::new();
-    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/cube.glb", &renderer)?);
-    let tree = assets.add_mesh(Mesh::load("assets/meshes/tree.glb", &renderer)?);
-    let material = assets.add_material(Material { colour: Vec4::X + Vec4::Z + Vec4::W });
+    let cube = assets.add_mesh(Mesh::load("assets/meshes/cube.glb", &renderer)?);
+    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb", &renderer)?);
+    let white = assets.add_material(Material { colour: Vec4::ONE });
+    let orange = assets.add_material(Material {
+        colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
+    });
     let mut world = World::new()
         .with_resource(State::Running)
         .with_resource(assets)
+        .with_resource(Inventory::default())
         .with(window.add())
         .with(renderer.add())
         .with(camera.add())
@@ -113,21 +147,40 @@ async fn main() -> Result<()> {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
             }
             _ => (),
-        });
+        })
+        .with_ticker(Player::tick)
+        .with_ticker(gather::tick);
 
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
 
-    world.spawn(CopperOre {
-        render: RenderObject { mesh: copper_ore, material },
-        transform,
-        collider: Collider {
-            kind: collider::ColliderKind::Aabb(Vec3::ONE),
-            position: Vec3::ZERO,
+    world.spawn(Player {
+        render: RenderObject {
+            mesh: cube,
+            material: white,
         },
+        transform,
     });
-    world.spawn(Tree {
-        render: RenderObject { mesh: tree, material },
+    world.spawn(CopperOre {
+        render: RenderObject {
+            mesh: copper_ore,
+            material: orange,
+        },
+        transform: Transform::IDENTITY,
+        gatherable: Gatherable {
+            collider: Collider {
+                kind: ColliderKind::Sphere(5.0),
+                position: Vec3::ZERO,
+            },
+            loot: LootTable::default().add(
+                1.0,
+                vec![ItemStack {
+                    item: Item::CopperOre,
+                    quantity: 2,
+                }],
+            ),
+            timer: Timer::new(Duration::from_secs(5))
+        },
     });
 
     loop {

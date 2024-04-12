@@ -148,8 +148,8 @@ impl Window {
                 .with_resource(self)
                 .with_resource(Mouse::default())
                 .with_resource(Keyboard::default())
-                .with_ticker(Self::tick)
                 .with_ticker(Mouse::tick)
+                .with_ticker(Self::tick)
         }
     }
 

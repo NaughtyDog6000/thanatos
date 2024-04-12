@@ -42,7 +42,7 @@ pub trait Archetype: Any {
 
 #[macro_export]
 macro_rules! impl_archetype {
-    (struct $for:ident { $( $field:ident: $type:ty ),* $(,)?}) => {
+    ($(pub )?struct $for:ident { $( pub $field:ident: $type:ty ),* $(,)?}) => {
         /*
         concat_idents::concat_idents!(for_ref = $for, Ref {
             pub struct for_ref<'a> {
