@@ -6,7 +6,7 @@ pub use vecany::VecAny;
 
 use std::{
     any::{Any, TypeId},
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::HashMap,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -14,30 +14,30 @@ use std::{
 };
 
 pub trait System<E> {
-    fn event(&self, world: &mut World<E>, event: &E);
-    fn tick(&self, world: &mut World<E>);
+    fn event(&self, world: &World<E>, event: &E);
+    fn tick(&self, world: &World<E>);
 }
 
 struct Handler<T>(T);
 struct Ticker<T>(T);
 
-impl<E, T: Fn(&mut World<E>, &E)> System<E> for Handler<T> {
-    fn event(&self, world: &mut World<E>, event: &E) {
+impl<E, T: Fn(&World<E>, &E)> System<E> for Handler<T> {
+    fn event(&self, world: &World<E>, event: &E) {
         self.0(world, event)
     }
-    fn tick(&self, _: &mut World<E>) {}
+    fn tick(&self, _: &World<E>) {}
 }
 
-impl<E, T: Fn(&mut World<E>)> System<E> for Ticker<T> {
-    fn event(&self, _: &mut World<E>, _: &E) {}
-    fn tick(&self, world: &mut World<E>) {
+impl<E, T: Fn(&World<E>)> System<E> for Ticker<T> {
+    fn event(&self, _: &World<E>, _: &E) {}
+    fn tick(&self, world: &World<E>) {
         self.0(world)
     }
 }
 
 pub trait Archetype: Any {
     fn columns() -> Vec<TypeId>;
-    fn add(self, table: &mut Table);
+    fn add(self, table: &Table);
 }
 
 #[macro_export]
@@ -87,8 +87,8 @@ macro_rules! impl_archetype {
                 vec![$(std::any::TypeId::of::<$type>()),*]
             }
 
-            fn add(self, table: &mut tecs::Table) {
-                table.length += 1;
+            fn add(self, table: &tecs::Table) {
+                table.length.set(table.length.get() + 1);
                 let mut columns = table.columns_mut();
                 $(
                     columns.next().unwrap().push::<$type>(self.$field);
@@ -125,14 +125,14 @@ impl Column {
 }
 
 pub struct Table {
-    pub length: usize,
+    pub length: Cell<usize>,
     columns: Vec<(TypeId, RefCell<Column>)>,
 }
 
 impl Table {
     pub fn new(columns: &[TypeId]) -> Self {
         Self {
-            length: 0,
+            length: Cell::new(0),
             columns: columns
                 .iter()
                 .cloned()
@@ -156,8 +156,13 @@ impl Table {
         self.columns
             .iter()
             .find(|(ty, _)| *ty == TypeId::of::<T>())
-            .and_then(|(_, column)| {
-                Ref::filter_map(column.borrow(), |column| column.data.downcast_ref::<T>()).ok()
+            .map(|(_, column)| {
+                Ref::map(column.borrow(), |column| {
+                    column.data.downcast_ref::<T>().expect(&format!(
+                        "Failed to downcast {}",
+                        std::any::type_name::<T>()
+                    ))
+                })
             })
     }
 
@@ -174,7 +179,7 @@ impl Table {
     }
 
     pub fn len(&self) -> usize {
-        self.length
+        self.length.get()
     }
 }
 
@@ -213,21 +218,21 @@ impl<'a, T> ColumnsMut<'a, T> {
         self.columns.iter().flat_map(|column| column.deref())
     }
 
-    pub fn for_each<F: Fn(&mut T)>(&mut self, f: F) {
+    pub fn for_each<F: FnMut(&mut T)>(&mut self, f: F) {
         self.columns
             .iter_mut()
             .flat_map(|column| column.deref_mut())
             .for_each(f)
     }
 
-    pub fn fold<A, F: Fn(A, &mut T) -> A>(&mut self, init: A, f: F) -> A {
+    pub fn fold<A, F: FnMut(A, &mut T) -> A>(&mut self, init: A, f: F) -> A {
         self.columns
             .iter_mut()
             .flat_map(|column| column.deref_mut())
             .fold(init, f)
     }
 
-    pub fn map<A, O, F: Fn(&mut T) -> O>(&mut self, f: F) -> Vec<O> {
+    pub fn map<A, O, F: FnMut(&mut T) -> O>(&mut self, f: F) -> Vec<O> {
         self.columns
             .iter_mut()
             .flat_map(|column| column.deref_mut())
@@ -235,7 +240,7 @@ impl<'a, T> ColumnsMut<'a, T> {
             .collect()
     }
 
-    pub fn filter_map<A, O, F: Fn(&mut T) -> Option<O>>(&mut self, f: F) -> Vec<O> {
+    pub fn filter_map<A, O, F: FnMut(&mut T) -> Option<O>>(&mut self, f: F) -> Vec<O> {
         self.columns
             .iter_mut()
             .flat_map(|column| column.deref_mut())
@@ -407,12 +412,12 @@ impl<E> World<E> {
         self
     }
 
-    pub fn with_handler<T: Fn(&mut World<E>, &E) + 'static>(mut self, handler: T) -> Self {
+    pub fn with_handler<T: Fn(&World<E>, &E) + 'static>(mut self, handler: T) -> Self {
         self.systems.push(Rc::new(Handler(handler)));
         self
     }
 
-    pub fn with_ticker<T: Fn(&mut World<E>) + 'static>(mut self, ticker: T) -> Self {
+    pub fn with_ticker<T: Fn(&World<E>) + 'static>(mut self, ticker: T) -> Self {
         self.systems.push(Rc::new(Ticker(ticker)));
         self
     }
@@ -423,17 +428,18 @@ impl<E> World<E> {
         self
     }
 
-    fn register<T: Archetype>(&mut self) {
+    pub fn register<T: Archetype>(mut self) -> Self {
         self.archetypes
             .insert(TypeId::of::<T>(), Table::new(&T::columns()));
+        self
     }
 
-    pub fn spawn<T: Archetype>(&mut self, entity: T) -> TypedEntityId<T> {
+    pub fn spawn<T: Archetype>(&self, entity: T) -> TypedEntityId<T> {
         if !self.archetypes.contains_key(&TypeId::of::<T>()) {
-            self.register::<T>();
+            panic!("Unregistered archetype {}", std::any::type_name::<T>());
         }
 
-        let store = self.archetypes.get_mut(&TypeId::of::<T>()).unwrap();
+        let store = self.archetypes.get(&TypeId::of::<T>()).unwrap();
         entity.add(store);
         TypedEntityId(store.len() as u32 - 1, PhantomData)
     }
@@ -509,14 +515,14 @@ impl<E> World<E> {
         })
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&self) {
         self.systems
             .clone()
             .into_iter()
             .for_each(|system| system.tick(self))
     }
 
-    pub fn submit(&mut self, event: E) {
+    pub fn submit(&self, event: E) {
         self.systems
             .clone()
             .into_iter()

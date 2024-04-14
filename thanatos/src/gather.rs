@@ -56,7 +56,7 @@ impl Gatherable {
     }
 }
 
-pub fn tick(world: &mut World) {
+pub fn tick(world: &World) {
     let keyboard = world.get::<Keyboard>().unwrap();
     if keyboard.is_down("f") {
         let entity = {

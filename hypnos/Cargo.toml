@@ -1,0 +1,12 @@
+[package]
+name = "hypnos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.82"
+async-std = { version = "1.12.0", features = ["attributes"] }
+bincode = "1.3.3"
+futures = "0.3.30"
+glam = "0.26"
+nyx = { version = "0.1.0", path = "../nyx" }

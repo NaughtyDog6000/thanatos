@@ -49,7 +49,7 @@ impl Camera {
         transformed.xyz() / transformed.w
     }
 
-    pub fn handle_resize(world: &mut World, event: &Event) {
+    pub fn handle_resize(world: &World, event: &Event) {
         match event {
             Event::Resized(new_size) => {
                 let mut camera = world.get_mut::<Camera>().unwrap();
@@ -59,7 +59,7 @@ impl Camera {
         }
     }
 
-    pub fn rotate_camera(world: &mut World) {
+    pub fn rotate_camera(world: &World) {
         let mouse = world.get::<Mouse>().unwrap();
         let mut camera = world.get_mut::<Camera>().unwrap();
         if mouse.is_down(winit::event::MouseButton::Right) {

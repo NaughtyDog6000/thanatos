@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
+default-members = ["thanatos"]
 members = [
     "gltf", 
     "hephaestus", 
+    "hypnos", "nyx", 
     "tecs",
     "thanatos",
     "thanatos_macros"

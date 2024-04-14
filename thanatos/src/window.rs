@@ -24,7 +24,7 @@ impl Mouse {
         self.down.contains(&button)
     }
 
-    pub fn tick(world: &mut World) {
+    pub fn tick(world: &World) {
         let mut mouse = world.get_mut::<Mouse>().unwrap();
         mouse.delta = Vec2::ZERO;
     }
@@ -74,7 +74,7 @@ impl Window {
         Self { event_loop, window }
     }
 
-    pub fn tick(world: &mut World) {
+    pub fn tick(world: &World) {
         let mut events = Vec::new();
         {
             let mut window = world.get_mut::<Window>().unwrap();
