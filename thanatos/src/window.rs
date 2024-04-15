@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use glam::Vec2;
 use winit::{
@@ -6,11 +6,11 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{Key, SmolStr},
-    platform::run_on_demand::EventLoopExtRunOnDemand,
+    platform::{pump_events::EventLoopExtPumpEvents, run_on_demand::EventLoopExtRunOnDemand},
     window::WindowBuilder,
 };
 
-use crate::{event::Event, World};
+use crate::{event::Event, Timer, World};
 
 #[derive(Clone, Default)]
 pub struct Mouse {
@@ -76,19 +76,17 @@ impl Window {
 
     pub fn tick(world: &World) {
         let mut events = Vec::new();
+
         {
             let mut window = world.get_mut::<Window>().unwrap();
+            let mut keyboard = world.get_mut::<Keyboard>().unwrap();
+            let mut mouse = world.get_mut::<Mouse>().unwrap();
+
             window
                 .event_loop
-                .run_on_demand(|event, control| {
-                    control.exit();
-
-                    if let winit::event::Event::WindowEvent {
-                        window_id: _,
-                        event,
-                    } = event
-                    {
-                        match event {
+                .pump_events(Some(Duration::ZERO), |event, _| {
+                    match event {
+                        winit::event::Event::WindowEvent { event, .. } => match event {
                             WindowEvent::Resized(new_size) => {
                                 events.push(Event::Resized(new_size));
                             }
@@ -96,8 +94,6 @@ impl Window {
                                 events.push(Event::Stop);
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
-                                let mut keyboard = world.get_mut::<Keyboard>().unwrap();
-
                                 match event.state {
                                     ElementState::Pressed => {
                                         keyboard.down.insert(event.logical_key.clone());
@@ -110,7 +106,6 @@ impl Window {
                                 }
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
-                                let mut mouse = world.get_mut::<Mouse>().unwrap();
                                 match state {
                                     ElementState::Pressed => {
                                         mouse.down.insert(button);
@@ -123,7 +118,6 @@ impl Window {
                                 }
                             }
                             WindowEvent::CursorMoved { position, .. } => {
-                                let mut mouse = world.get_mut::<Mouse>().unwrap();
                                 let position = Vec2::new(position.x as f32, position.y as f32);
                                 mouse.delta = position - mouse.position;
                                 mouse.position = position;
@@ -134,9 +128,9 @@ impl Window {
                             }
                             _ => (),
                         }
+                        _ => ()
                     }
-                })
-                .unwrap();
+                });
         }
 
         events.into_iter().for_each(|event| world.submit(event));
