@@ -14,8 +14,8 @@ use std::{
 };
 
 pub trait System<E> {
-    fn event(&self, world: &World<E>, event: &E);
-    fn tick(&self, world: &World<E>);
+    fn event(&self, world: &World<E>, event: &E) {}
+    fn tick(&self, world: &World<E>) {}
 }
 
 struct Handler<T>(T);
@@ -25,11 +25,9 @@ impl<E, T: Fn(&World<E>, &E)> System<E> for Handler<T> {
     fn event(&self, world: &World<E>, event: &E) {
         self.0(world, event)
     }
-    fn tick(&self, _: &World<E>) {}
 }
 
 impl<E, T: Fn(&World<E>)> System<E> for Ticker<T> {
-    fn event(&self, _: &World<E>, _: &E) {}
     fn tick(&self, world: &World<E>) {
         self.0(world)
     }

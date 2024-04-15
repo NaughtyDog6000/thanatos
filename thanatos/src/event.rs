@@ -12,5 +12,6 @@ pub enum Event {
     MousePress(MouseButton),
     MouseRelease(MouseButton),
     MouseMove { position: Vec2, delta: Vec2 },
-    Recieved(Clientbound)
+    Recieved(Clientbound),
+    ServerTick
 }

@@ -2,6 +2,7 @@ use std::{
     cell::Cell,
     collections::HashMap,
     sync::{Arc, RwLock},
+    time::{Duration, Instant},
 };
 
 use anyhow::Result;
@@ -16,7 +17,7 @@ use futures::{
     AsyncReadExt,
 };
 use glam::Vec3;
-use nyx::protocol::{ClientId, Clientbound, Serverbound};
+use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
 
 pub async fn read(reader: &mut ReadHalf<TcpStream>) -> Result<Serverbound> {
     let mut length_bytes = [0; 4];
@@ -28,8 +29,8 @@ pub async fn read(reader: &mut ReadHalf<TcpStream>) -> Result<Serverbound> {
     Ok(bincode::deserialize(&buffer)?)
 }
 
-pub async fn write(writer: &mut WriteHalf<TcpStream>, message: Clientbound) -> Result<()> {
-    let buffer = bincode::serialize(&message)?;
+pub async fn write(writer: &mut WriteHalf<TcpStream>, bundle: ClientboundBundle) -> Result<()> {
+    let buffer = bincode::serialize(&bundle)?;
     writer
         .write_all(&(buffer.len() as u32).to_be_bytes())
         .await?;
@@ -47,6 +48,7 @@ pub struct Client {
 async fn main() -> Result<()> {
     let mut clients: HashMap<ClientId, Client> = HashMap::new();
     let (clients_tx, clients_rx) = channel::unbounded();
+    let (flush_tx, flush_rx) = channel::unbounded();
 
     task::spawn(async move {
         let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
@@ -73,27 +75,53 @@ async fn main() -> Result<()> {
                         Ok(message) => message,
                         Err(_) => Serverbound::Disconnect,
                     };
-                    println!("Received {:?} from {id:?}", message);
-                    serverbound_tx.send(message).await.unwrap();
+
+                    let serverbound_tx = serverbound_tx.clone();
+
+                    task::spawn(async move {
+                        task::sleep(Duration::from_millis(100)).await;
+                        println!("Received {:?} from {id:?}", message);
+                        serverbound_tx.send(message).await.unwrap();
+                    });
                 }
             });
 
+            let flush_rx = flush_rx.clone();
+
             task::spawn(async move {
+                let mut messages = Vec::new();
                 loop {
                     if let Ok(message) = clientbound_rx.try_recv() {
                         println!("Sending {:?} to {id:?}", message);
-                        write(&mut writer, message).await.unwrap()
+                        messages.push(message);
+                    }
+
+                    if let Ok(tick) = flush_rx.try_recv() {
+                        println!("Flushing {:?}", tick);
+                        write(&mut writer, ClientboundBundle { tick, messages })
+                            .await
+                            .unwrap();
+                        messages = Vec::new();
                     }
                 }
             });
         }
     });
 
+    let mut tick = Tick(0);
+    let mut last_tick = Instant::now();
+
     loop {
+        if last_tick.elapsed() < Duration::from_secs_f32(1.0 / TPS) {
+            continue;
+        }
+        last_tick = Instant::now();
+        println!("Handling: {tick:?}");
+
         while let Ok((id, client)) = clients_rx.try_recv() {
             println!("Adding {:?} to clients", id);
 
-            client.tx.send(Clientbound::SetToken(id)).await.unwrap();
+            client.tx.send(Clientbound::AuthSuccess(id)).await.unwrap();
             for (other_id, other) in clients.iter() {
                 other
                     .tx
@@ -115,16 +143,21 @@ async fn main() -> Result<()> {
         for (id, client) in clients.iter() {
             while let Ok(message) = client.rx.try_recv() {
                 match message {
-                    Serverbound::Move(client_id, position) => {
+                    Serverbound::Move(client_id, position, tick) => {
                         if *id != client_id {
                             println!("ID mismatch");
                             continue;
                         }
                         client.position.set(position);
+                        client
+                            .tx
+                            .send(Clientbound::Move(*id, client.position.get(), tick))
+                            .await
+                            .unwrap();
                         for (_, other) in clients.iter().filter(|(other_id, _)| *other_id != id) {
                             other
                                 .tx
-                                .send(Clientbound::Move(*id, client.position.get()))
+                                .send(Clientbound::Move(*id, client.position.get(), tick))
                                 .await
                                 .unwrap();
                         }
@@ -145,5 +178,8 @@ async fn main() -> Result<()> {
                 client.tx.send(Clientbound::Despawn(id)).await.unwrap()
             }
         }
+
+        flush_tx.send(tick).await.unwrap();
+        tick.inc();
     }
 }

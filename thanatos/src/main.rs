@@ -151,7 +151,7 @@ async fn main() -> Result<()> {
         })
         .with_ticker(Player::tick)
         .with_ticker(gather::tick)
-        .with(OtherPlayer::add(cube, white));
+        .with(net::add(cube, white));
 
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
