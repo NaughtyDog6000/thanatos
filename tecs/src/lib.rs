@@ -230,7 +230,7 @@ impl<'a, T> ColumnsMut<'a, T> {
             .fold(init, f)
     }
 
-    pub fn map<A, O, F: FnMut(&mut T) -> O>(&mut self, f: F) -> Vec<O> {
+    pub fn map<O, F: FnMut(&mut T) -> O>(&mut self, f: F) -> Vec<O> {
         self.columns
             .iter_mut()
             .flat_map(|column| column.deref_mut())
@@ -238,7 +238,7 @@ impl<'a, T> ColumnsMut<'a, T> {
             .collect()
     }
 
-    pub fn filter_map<A, O, F: FnMut(&mut T) -> Option<O>>(&mut self, f: F) -> Vec<O> {
+    pub fn filter_map<O, F: FnMut(&mut T) -> Option<O>>(&mut self, f: F) -> Vec<O> {
         self.columns
             .iter_mut()
             .flat_map(|column| column.deref_mut())
@@ -252,6 +252,72 @@ impl<'a, T> ColumnsMut<'a, T> {
             .and_then(|column| column.first_mut())
     }
 }
+
+pub trait QueryOne<E> {
+    type Output<'a>;
+
+    fn filter(table: &(TypeId, &Table)) -> bool;
+    fn data<'a>(tables: &[(TypeId, &'a Table)]) -> Self::Output<'a>;
+}
+
+impl<T: 'static, E> QueryOne<E> for &'_ T {
+    type Output<'a> = Ref<'a, T>;
+
+    fn filter(table: &(TypeId, &Table)) -> bool {
+        table.1.has_column::<T>()
+    }
+
+    fn data<'a>(tables: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+        tables
+            .iter()
+            .find_map(|(_, table)| {
+                Ref::filter_map(table.column::<T>()?, |column| column.first()).ok()
+            })
+            .unwrap()
+    }
+}
+
+impl<T: 'static, E> QueryOne<E> for &'_ mut T {
+    type Output<'a> = RefMut<'a, T>;
+
+    fn filter(table: &(TypeId, &Table)) -> bool {
+        table.1.has_column::<T>()
+    }
+
+    fn data<'a>(tables: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+        tables
+            .iter()
+            .find_map(|(_, table)| {
+                RefMut::filter_map(table.column_mut::<T>()?, |column| column.first_mut()).ok()
+            })
+            .unwrap()
+    }
+}
+
+macro_rules! impl_query_one {
+    ($($ty:ident)+) => {
+        impl<Event, $($ty: QueryOne<Event>),+> QueryOne<Event> for ($($ty),+,) {
+            type Output<'a> = ($($ty::Output<'a>),+,);
+
+            fn filter(table: &(TypeId, &Table)) -> bool {
+                $($ty::filter(table))&&+
+            }
+
+            fn data<'a>(tables: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+                ($($ty::data(tables)),+,)
+            }
+        }
+    };
+}
+
+impl_query_one!(A);
+impl_query_one!(A B);
+impl_query_one!(A B C);
+impl_query_one!(A B C D);
+impl_query_one!(A B C D E);
+impl_query_one!(A B C D E F);
+impl_query_one!(A B C D E F G);
+impl_query_one!(A B C D E F G H);
 
 pub trait Query<E> {
     type Output<'a>;
@@ -327,6 +393,17 @@ impl<E, T: 'static> Query<E> for With<T> {
         ()
     }
 }
+impl<E, T: 'static> QueryOne<E> for With<T> {
+    type Output<'a> = ();
+
+    fn filter(table: &(TypeId, &Table)) -> bool {
+        table.1.has_column::<T>()
+    }
+
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+        ()
+    }
+}
 
 pub struct Without<T>(PhantomData<T>);
 impl<E, T: 'static> Query<E> for Without<T> {
@@ -340,9 +417,31 @@ impl<E, T: 'static> Query<E> for Without<T> {
         ()
     }
 }
+impl<E, T: 'static> QueryOne<E> for Without<T> {
+    type Output<'a> = ();
+
+    fn filter(table: &(TypeId, &Table)) -> bool {
+        !table.1.has_column::<T>()
+    }
+
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+        ()
+    }
+}
 
 pub struct Is<T>(PhantomData<T>);
 impl<E, T: Archetype> Query<E> for Is<T> {
+    type Output<'a> = ();
+
+    fn filter(table: &(TypeId, &Table)) -> bool {
+        table.0 == TypeId::of::<T>()
+    }
+
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+        ()
+    }
+}
+impl<E, T: Archetype> QueryOne<E> for Is<T> {
     type Output<'a> = ();
 
     fn filter(table: &(TypeId, &Table)) -> bool {
@@ -443,6 +542,17 @@ impl<E> World<E> {
     }
 
     pub fn query<Q: Query<E>>(&self) -> Q::Output<'_> {
+        Q::data(
+            &self
+                .archetypes
+                .iter()
+                .map(|(&ty, table)| (ty, table))
+                .filter(Q::filter)
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn query_one<Q: QueryOne<E>>(&self) -> Q::Output<'_> {
         Q::data(
             &self
                 .archetypes

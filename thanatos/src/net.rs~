@@ -4,8 +4,8 @@ use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick,
 use std::{
     cell::RefCell,
     collections::{HashMap, VecDeque},
-    io::ErrorKind,
-    net::UdpSocket,
+    io::{ErrorKind, Read, Write},
+    net::TcpStream,
     time::{Duration, Instant},
 };
 use tecs::{impl_archetype, Is, System};
@@ -21,7 +21,7 @@ use crate::{
 };
 
 pub struct Connection {
-    socket: UdpSocket,
+    tcp: TcpStream,
     buffer: Vec<u8>,
     pub id: Option<ClientId>,
     pub tick: Tick,
@@ -29,37 +29,52 @@ pub struct Connection {
 
 impl Connection {
     pub fn new() -> Result<Self> {
-        let socket = UdpSocket::bind("127.0.0.1:0")?;
-        socket.connect("127.0.0.1:8080")?;
-        socket.set_nonblocking(true)?;
-        let mut conn = Self {
-            socket,
+        let tcp = TcpStream::connect("127.0.0.1:8080")?;
+        tcp.set_nonblocking(true).unwrap();
+        Ok(Self {
+            tcp,
             buffer: Vec::new(),
             id: None,
             tick: Tick(0),
-        };
-        conn.write(Serverbound::AuthRequest).unwrap();
-        Ok(conn)
+        })
     }
 
     pub fn write(&mut self, message: Serverbound) -> Result<()> {
         let data = bincode::serialize(&message)?;
-        self.socket.send(&data)?;
+        let mut buffer = (data.len() as u32).to_be_bytes().to_vec();
+        buffer.extend_from_slice(&data);
+        self.tcp.write_all(&buffer)?;
         Ok(())
     }
 
-    fn get(&mut self) -> Option<ClientboundBundle> {
-        let mut buffer = [0; 4096]; 
-        match self.socket.recv(&mut buffer) {
-            Ok(_) => Some(bincode::deserialize(&buffer).unwrap()),
-            Err(e) if e.kind() == ErrorKind::WouldBlock => None,
-            Err(e) => panic!("{e}")
+    fn read(&mut self) -> Result<()> {
+        let mut buffer = vec![0; 2048];
+        loop {
+            match self.tcp.read(&mut buffer) {
+                Ok(n) => self.buffer.extend_from_slice(&buffer[0..n]),
+                Err(err) if err.kind() == ErrorKind::WouldBlock => return Ok(()),
+                Err(e) => return Err(e.into()),
+            }
         }
+    }
+
+    fn get(&mut self) -> Option<ClientboundBundle> {
+        if self.buffer.len() < 4 {
+            return None;
+        }
+        let length = u32::from_be_bytes(self.buffer[0..4].try_into().unwrap()) as usize;
+        if self.buffer.len() < length + 4 {
+            return None;
+        }
+        let message = bincode::deserialize(&self.buffer[4..length + 4]).ok()?;
+        self.buffer.drain(0..length + 4);
+        Some(message)
     }
 
     pub fn tick(world: &World) {
         let messages: Vec<Clientbound> = {
             let mut conn = world.get_mut::<Connection>().unwrap();
+            conn.read().unwrap();
 
             let Some(bundle) = conn.get() else { return };
             conn.tick = bundle.tick;
@@ -90,34 +105,34 @@ impl Connection {
 }
 
 pub struct Positions {
-    queue: VecDeque<(Instant, Vec3)>,
+    updated: Instant,
+    queue: VecDeque<Vec3>,
 }
 
 impl Positions {
     pub fn new() -> Self {
         Self {
+            updated: Instant::now(),
             queue: VecDeque::new(),
         }
     }
 
     pub fn push(&mut self, position: Vec3) {
-        self.queue.push_back((Instant::now() + Duration::from_secs_f32(2.0 / TPS), position))
+        self.queue.push_back(position)
     }
 
     pub fn get(&mut self) -> Option<Vec3> {
-        let now = Instant::now();
         match self.queue.len() {
             0 => None,
-            1 => self.queue.get(1).map(|x| x.1),
+            1 => self.queue.get(1).copied(),
             n => {
-                let first = self.queue.get(0).unwrap();
-                let second = self.queue.get(1).unwrap();
-                if second.0 < now {
+                let t = self.updated.elapsed().as_secs_f32() * TPS;
+                if t <= 1.0 {
+                    Some(*self.queue.get(1).unwrap() * t + *self.queue.get(0).unwrap() * (1.0 - t))
+                } else {
+                    self.updated = Instant::now();
                     self.queue.pop_front();
                     self.get()
-                } else {
-                    let t = (now - first.0).as_secs_f32() / (second.0 - first.0).as_secs_f32();
-                    Some(second.1 * t + first.1 * (1.0 - t))
                 }
             }
         }
@@ -129,7 +144,7 @@ pub struct OtherPlayer {
     pub client_id: ClientId,
     pub render: RenderObject,
     pub transform: Transform,
-    pub positions: Positions,
+    pub positions: Positions
 }
 
 pub struct MovementSystem {
@@ -150,12 +165,12 @@ impl MovementSystem {
             client_id,
             render,
             transform,
-            positions: Positions::new(),
+            positions: Positions::new()
         });
     }
 
     fn move_player(&self, world: &World, position: Vec3, tick: Tick) {
-        let (mut transform, _) = world.query_one::<(&mut Transform, Is<Player>)>();
+        let (mut transforms, _) = world.query::<(&mut Transform, Is<Player>)>();
 
         if let Some(actual) = self.positions.borrow().get(&tick) {
             if position == *actual {
@@ -163,7 +178,7 @@ impl MovementSystem {
             }
         }
 
-        transform.translation = position;
+        transforms.for_each(|transform| transform.translation = position);
     }
 
     fn move_other_player(&self, world: &World, client_id: ClientId, position: Vec3) {
@@ -183,24 +198,23 @@ impl MovementSystem {
     }
 
     fn update_buffered_positions(world: &World) {
-        let (mut transforms, mut positions) = world.query::<(&mut Transform, &mut Positions)>();
-        let mut positions = positions.map(|position| position.get()).into_iter();
-        transforms.for_each(|transform| {
-            if let Some(position) = positions.next().unwrap() {
-                transform.translation = position
-            }
-        });
+        let (mut transforms, positions) = world.query::<(&mut Transform, &mut Positions)>();
+        let mut positions = positions.map(|position| position.get()).iter();
+        transforms.for_each(|transform| transform.translation = positions.next().unwrap());
     }
 
     fn despawn(&self, world: &World, client_id: ClientId) {
         let (mut transforms, client_ids, _) =
             world.query::<(&mut Transform, &ClientId, Is<OtherPlayer>)>();
-        let mut client_ids = client_ids
-            .iter();
+        let mut n = client_ids
+            .iter()
+            .position(|other| client_id == *other)
+            .unwrap() as i64;
         transforms.for_each(|transform| {
-            if *client_ids.next().unwrap() == client_id {
+            if n == 0 {
                 transform.translation = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
             };
+            n -= 1
         })
     }
 
@@ -211,8 +225,8 @@ impl MovementSystem {
         if conn.id.is_none() {
             return;
         }
-        let tick = conn.tick;
-        conn.write(Serverbound::Move(position, tick))
+        let (client_id, tick) = (conn.id.unwrap(), conn.tick);
+        conn.write(Serverbound::Move(client_id, position, tick))
             .unwrap();
         self.positions.borrow_mut().insert(tick, position);
     }
@@ -229,7 +243,7 @@ impl System<Event> for MovementSystem {
                     if *client_id == conn.id.unwrap() {
                         self.move_player(world, *position, *tick);
                     } else {
-                        self.move_other_player(world, *client_id, *position);
+                        // self.move_other_player(world, *client_id, *position);
                     }
                 }
                 Clientbound::Despawn(client_id) => self.despawn(world, *client_id),
@@ -241,7 +255,7 @@ impl System<Event> for MovementSystem {
     }
 
     fn tick(&self, world: &World) {
-        Self::update_buffered_positions(world);
+        // Self::update_buffered_positions(world);
     }
 }
 

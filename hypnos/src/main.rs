@@ -1,185 +1,131 @@
 use std::{
     cell::Cell,
-    collections::HashMap,
-    sync::{Arc, RwLock},
+    collections::{HashMap, VecDeque},
+    io::ErrorKind,
+    net::{SocketAddr, UdpSocket},
     time::{Duration, Instant},
 };
 
 use anyhow::Result;
-use async_std::{channel, task};
-use async_std::{
-    channel::{Receiver, Sender},
-    io::WriteExt,
-    net::{TcpListener, TcpStream},
-};
-use futures::{
-    io::{ReadHalf, WriteHalf},
-    AsyncReadExt,
-};
+use crossbeam_channel::unbounded;
 use glam::Vec3;
 use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
 
-pub async fn read(reader: &mut ReadHalf<TcpStream>) -> Result<Serverbound> {
-    let mut length_bytes = [0; 4];
-    reader.read_exact(&mut length_bytes).await?;
-    let length = u32::from_be_bytes(length_bytes) as usize;
-
-    let mut buffer = vec![0_u8; length];
-    reader.read_exact(&mut buffer).await?;
-    Ok(bincode::deserialize(&buffer)?)
-}
-
-pub async fn write(writer: &mut WriteHalf<TcpStream>, bundle: ClientboundBundle) -> Result<()> {
-    let buffer = bincode::serialize(&bundle)?;
-    writer
-        .write_all(&(buffer.len() as u32).to_be_bytes())
-        .await?;
-    writer.write_all(&buffer).await?;
-    Ok(())
-}
+const FORCED_LATENCY: Duration = Duration::from_millis(300);
 
 pub struct Client {
+    id: ClientId,
     position: Cell<Vec3>,
-    tx: Sender<Clientbound>,
-    rx: Receiver<Serverbound>,
 }
 
-#[async_std::main]
-async fn main() -> Result<()> {
-    let mut clients: HashMap<ClientId, Client> = HashMap::new();
-    let (clients_tx, clients_rx) = channel::unbounded();
-    let (flush_tx, flush_rx) = channel::unbounded();
+fn main() -> Result<()> {
+    let socket = UdpSocket::bind("0.0.0.0:8080").unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let mut clients: HashMap<SocketAddr, Client> = HashMap::new();
+    let (serverbound_tx, serverbound_rx) = unbounded();
+    let (clientbound_tx, clientbound_rx) = unbounded();
+    let (flush_tx, flush_rx) = unbounded();
 
-    task::spawn(async move {
-        let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
-        let mut next = 0;
+    std::thread::spawn(move || {
+        let mut buf = [0; 4096];
+        println!("Listening");
+        let mut messages: HashMap<SocketAddr, Vec<Clientbound>> = HashMap::new();
+        let mut to_receive = VecDeque::new();
         loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (clientbound_tx, clientbound_rx) = channel::unbounded();
-            let (serverbound_tx, serverbound_rx) = channel::unbounded();
+            if let Ok((addr, message)) = clientbound_rx.try_recv() {
+                match messages.get_mut(&addr) {
+                    Some(messages) => messages.push(message),
+                    None => {
+                        messages.insert(addr, vec![message]);
+                    }
+                }
+            }
 
-            let id = ClientId(next);
-            let client = Client {
-                position: Cell::new(Vec3::ZERO),
-                rx: serverbound_rx,
-                tx: clientbound_tx,
-            };
-            next += 1;
-            clients_tx.send((id, client)).await.unwrap();
-
-            let (mut reader, mut writer) = stream.split();
-
-            task::spawn(async move {
-                loop {
-                    let message = match read(&mut reader).await {
-                        Ok(message) => message,
-                        Err(_) => Serverbound::Disconnect,
+            if let Ok(tick) = flush_rx.try_recv() {
+                messages.iter_mut().for_each(|(addr, messages)| {
+                    let bundle = ClientboundBundle {
+                        tick,
+                        messages: messages.to_vec(),
                     };
+                    *messages = Vec::new();
+                    let buffer = bincode::serialize(&bundle).unwrap();
+                    socket.send_to(&buffer, addr).unwrap();
+                })
+            }
 
-                    let serverbound_tx = serverbound_tx.clone();
+            let (n, addr) = match socket.recv_from(&mut buf) {
+                Ok((n, addr)) => (n, addr),
+                Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+                Err(e) => panic!("{e:?}"),
+            };
+            let Ok(message) = bincode::deserialize::<Serverbound>(&buf[0..n]) else {
+                continue;
+            };
+            println!("{n} from {addr:?}");
 
-                    task::spawn(async move {
-                        task::sleep(Duration::from_millis(100)).await;
-                        println!("Received {:?} from {id:?}", message);
-                        serverbound_tx.send(message).await.unwrap();
-                    });
+            to_receive.push_back((Instant::now(), (addr, message)));
+            while let Some((time, _)) = to_receive.get(0) {
+                if *time + FORCED_LATENCY < Instant::now() {
+                    serverbound_tx
+                        .send(to_receive.pop_front().unwrap().1)
+                        .unwrap()
+                } else {
+                    break;
                 }
-            });
-
-            let flush_rx = flush_rx.clone();
-
-            task::spawn(async move {
-                let mut messages = Vec::new();
-                loop {
-                    if let Ok(message) = clientbound_rx.try_recv() {
-                        println!("Sending {:?} to {id:?}", message);
-                        messages.push(message);
-                    }
-
-                    if let Ok(tick) = flush_rx.try_recv() {
-                        println!("Flushing {:?}", tick);
-                        write(&mut writer, ClientboundBundle { tick, messages })
-                            .await
-                            .unwrap();
-                        messages = Vec::new();
-                    }
-                }
-            });
+            }
         }
     });
 
+    let mut next = 0;
     let mut tick = Tick(0);
-    let mut last_tick = Instant::now();
+    let rx = serverbound_rx;
+    let tx = clientbound_tx;
 
     loop {
-        if last_tick.elapsed() < Duration::from_secs_f32(1.0 / TPS) {
-            continue;
-        }
-        last_tick = Instant::now();
-        println!("Handling: {tick:?}");
+        let start = Instant::now();
 
-        while let Ok((id, client)) = clients_rx.try_recv() {
-            println!("Adding {:?} to clients", id);
-
-            client.tx.send(Clientbound::AuthSuccess(id)).await.unwrap();
-            for (other_id, other) in clients.iter() {
-                other
-                    .tx
-                    .send(Clientbound::Spawn(id, client.position.get()))
-                    .await
-                    .unwrap();
-                client
-                    .tx
-                    .send(Clientbound::Spawn(*other_id, other.position.get()))
-                    .await
-                    .unwrap();
+        while let Ok((addr, message)) = rx.try_recv() {
+            if let Serverbound::AuthRequest = message {
+                let id = ClientId(next);
+                tx.send((addr, Clientbound::AuthSuccess(id))).unwrap();
+                clients.iter().for_each(|(other_addr, other)| {
+                    tx.send((*other_addr, Clientbound::Spawn(id, Vec3::ZERO)))
+                        .unwrap();
+                    tx.send((addr, Clientbound::Spawn(other.id, other.position.get())))
+                        .unwrap();
+                });
+                clients.insert(
+                    addr,
+                    Client {
+                        id,
+                        position: Cell::new(Vec3::ZERO),
+                    },
+                );
+                next += 1;
             }
 
-            clients.insert(id, client);
-        }
-
-        let mut to_remove = Vec::new();
-
-        for (id, client) in clients.iter() {
-            while let Ok(message) = client.rx.try_recv() {
-                match message {
-                    Serverbound::Move(client_id, position, tick) => {
-                        if *id != client_id {
-                            println!("ID mismatch");
-                            continue;
+            let Some(client) = clients.get(&addr) else {
+                continue;
+            };
+            match message {
+                Serverbound::Move(position, tick) => {
+                    let changed = client.position.get() != position;
+                    client.position.set(position);
+                    clients.keys().for_each(|other_addr| {
+                        if *other_addr != addr && !changed {
+                            return;
                         }
-                        client.position.set(position);
-                        client
-                            .tx
-                            .send(Clientbound::Move(*id, client.position.get(), tick))
-                            .await
+                        tx.send((*other_addr, Clientbound::Move(client.id, position, tick)))
                             .unwrap();
-                        for (_, other) in clients.iter().filter(|(other_id, _)| *other_id != id) {
-                            other
-                                .tx
-                                .send(Clientbound::Move(*id, client.position.get(), tick))
-                                .await
-                                .unwrap();
-                        }
-                    }
-                    Serverbound::Disconnect => {
-                        to_remove.push(*id);
-                    }
+                    })
                 }
+                _ => (),
             }
+            println!("{message:?}");
         }
 
-        to_remove.iter().for_each(|id| {
-            clients.remove(id);
-        });
-
-        for id in to_remove.drain(..) {
-            for (_, client) in clients.iter() {
-                client.tx.send(Clientbound::Despawn(id)).await.unwrap()
-            }
-        }
-
-        flush_tx.send(tick).await.unwrap();
-        tick.inc();
+        tick.0 += 1;
+        flush_tx.send(tick).unwrap();
+        std::thread::sleep(Duration::from_secs_f32(1.0 / TPS) - start.elapsed())
     }
 }

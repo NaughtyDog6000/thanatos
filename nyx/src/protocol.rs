@@ -23,7 +23,8 @@ pub enum Clientbound {
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Serverbound {
-    Move(ClientId, Vec3, Tick),
+    AuthRequest,
+    Move(Vec3, Tick),
     Disconnect
 }
 
