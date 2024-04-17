@@ -223,7 +223,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn draw(world: &mut World) {
+    pub fn draw(world: &World) {
         let mut renderer = world.get_mut::<Renderer>().unwrap();
         if renderer.tasks.len() > Renderer::FRAMES_IN_FLIGHT {
             let frame = renderer.tasks.pop_front().unwrap();

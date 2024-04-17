@@ -4,6 +4,7 @@ mod collider;
 mod event;
 mod gather;
 mod item;
+mod net;
 mod player;
 mod renderer;
 mod transform;
@@ -19,6 +20,7 @@ use event::Event;
 use gather::{Gatherable, LootTable};
 use glam::{Vec2, Vec3, Vec4};
 use item::{Inventory, Item, ItemStack};
+use net::{Connection, OtherPlayer};
 use player::Player;
 use renderer::{RenderObject, Renderer};
 use tecs::impl_archetype;
@@ -81,7 +83,7 @@ impl Clock {
             .with_ticker(Self::tick)
     }
 
-    pub fn tick(world: &mut World) {
+    pub fn tick(world: &World) {
         let mut clock = world.get_mut::<Clock>().unwrap();
         let now = Instant::now();
         clock.frame_delta = now - clock.last;
@@ -95,7 +97,7 @@ pub enum State {
     Running,
 }
 
-fn raycast_test(world: &mut World) {
+fn raycast_test(world: &World) {
     let mouse = world.get::<Mouse>().unwrap();
     let window = world.get::<Window>().unwrap();
 
@@ -130,7 +132,10 @@ async fn main() -> Result<()> {
         colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
     });
     let mut world = World::new()
+        .register::<Player>()
+        .register::<CopperOre>()
         .with_resource(State::Running)
+        .with(Connection::add)
         .with_resource(assets)
         .with_resource(Inventory::default())
         .with(window.add())
@@ -138,10 +143,6 @@ async fn main() -> Result<()> {
         .with(camera.add())
         .with(Clock::add)
         .with_ticker(raycast_test)
-        .with_ticker(|world| {
-            let clock = world.get::<Clock>().unwrap();
-            println!("FPS: {}", 1.0 / clock.frame_delta.as_secs_f32());
-        })
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -149,7 +150,8 @@ async fn main() -> Result<()> {
             _ => (),
         })
         .with_ticker(Player::tick)
-        .with_ticker(gather::tick);
+        .with_ticker(gather::tick)
+        .with(net::add(cube, white));
 
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
@@ -179,7 +181,7 @@ async fn main() -> Result<()> {
                     quantity: 2,
                 }],
             ),
-            timer: Timer::new(Duration::from_secs(5))
+            timer: Timer::new(Duration::from_secs(5)),
         },
     });
 

@@ -35,7 +35,16 @@ impl VecAny {
         if self.ty != TypeId::of::<T>() {
             return None;
         }
-        Some(unsafe { std::slice::from_raw_parts(self.ptr?.cast(), self.len) })
+
+        Some(match self.ptr {
+            Some(ptr) => unsafe {
+                std::slice::from_raw_parts(
+                    ptr.cast(),
+                    self.len,
+                )
+            },
+            None => &[],
+        })
     }
 
     pub fn downcast_mut<T: 'static>(&mut self) -> Option<&mut [T]> {
@@ -43,7 +52,15 @@ impl VecAny {
             return None;
         }
 
-        Some(unsafe { std::slice::from_raw_parts_mut(self.ptr?.cast(), self.len) })
+        Some(match self.ptr {
+            Some(ptr) => unsafe {
+                std::slice::from_raw_parts_mut(
+                    ptr.cast(),
+                    self.len,
+                )
+            },
+            None => &mut [],
+        })
     }
 
     pub fn push<T: 'static>(&mut self, item: T) {

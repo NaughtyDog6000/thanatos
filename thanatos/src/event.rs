@@ -1,4 +1,5 @@
 use glam::Vec2;
+use nyx::protocol::Clientbound;
 pub use winit::event::MouseButton;
 pub use winit::keyboard::Key;
 
@@ -11,4 +12,6 @@ pub enum Event {
     MousePress(MouseButton),
     MouseRelease(MouseButton),
     MouseMove { position: Vec2, delta: Vec2 },
+    Recieved(Clientbound),
+    ServerTick
 }
