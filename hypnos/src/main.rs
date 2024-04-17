@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
-use crossbeam_channel::unbounded;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use glam::Vec3;
 use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
 
@@ -18,6 +18,87 @@ pub struct Client {
     position: Cell<Vec3>,
 }
 
+fn handle_networking(
+    socket: UdpSocket,
+    clientbound_rx: Receiver<(SocketAddr, Clientbound)>,
+    flush_rx: Receiver<Tick>,
+    serverbound_tx: Sender<(SocketAddr, Serverbound)>,
+) {
+    let mut buf = [0; 4096];
+    println!("Listening");
+    let mut messages: HashMap<SocketAddr, Vec<Clientbound>> = HashMap::new();
+    let mut to_receive = VecDeque::new();
+    loop {
+        if let Ok((addr, message)) = clientbound_rx.try_recv() {
+            match messages.get_mut(&addr) {
+                Some(messages) => messages.push(message),
+                None => {
+                    messages.insert(addr, vec![message]);
+                }
+            }
+        }
+
+        if let Ok(tick) = flush_rx.try_recv() {
+            messages.iter_mut().for_each(|(addr, messages)| {
+                let bundle = ClientboundBundle {
+                    tick,
+                    messages: messages.to_vec(),
+                };
+                *messages = Vec::new();
+                let buffer = bincode::serialize(&bundle).unwrap();
+                socket.send_to(&buffer, addr).unwrap();
+            })
+        }
+
+        let (n, addr) = match socket.recv_from(&mut buf) {
+            Ok((n, addr)) => (n, addr),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
+            Err(e) => panic!("{e:?}"),
+        };
+        let Ok(message) = bincode::deserialize::<Serverbound>(&buf[0..n]) else {
+            continue;
+        };
+        println!("{n} from {addr:?}");
+
+        to_receive.push_back((Instant::now(), (addr, message)));
+        while let Some((time, _)) = to_receive.get(0) {
+            if *time + FORCED_LATENCY < Instant::now() {
+                serverbound_tx
+                    .send(to_receive.pop_front().unwrap().1)
+                    .unwrap()
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+fn add_client(
+    clients: &mut HashMap<SocketAddr, Client>,
+    tx: &Sender<(SocketAddr, Clientbound)>,
+    id: ClientId,
+    addr: SocketAddr,
+) -> Result<()> {
+    tx.send((addr, Clientbound::AuthSuccess(id)))?;
+    clients
+        .iter()
+        .map(|(other_addr, other)| {
+            tx.send((*other_addr, Clientbound::Spawn(id, Vec3::ZERO)))?;
+            tx.send((addr, Clientbound::Spawn(other.id, other.position.get())))?;
+            Ok(())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    clients.insert(
+        addr,
+        Client {
+            id,
+            position: Cell::new(Vec3::ZERO),
+        },
+    );
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:8080").unwrap();
     socket.set_nonblocking(true).unwrap();
@@ -26,55 +107,7 @@ fn main() -> Result<()> {
     let (clientbound_tx, clientbound_rx) = unbounded();
     let (flush_tx, flush_rx) = unbounded();
 
-    std::thread::spawn(move || {
-        let mut buf = [0; 4096];
-        println!("Listening");
-        let mut messages: HashMap<SocketAddr, Vec<Clientbound>> = HashMap::new();
-        let mut to_receive = VecDeque::new();
-        loop {
-            if let Ok((addr, message)) = clientbound_rx.try_recv() {
-                match messages.get_mut(&addr) {
-                    Some(messages) => messages.push(message),
-                    None => {
-                        messages.insert(addr, vec![message]);
-                    }
-                }
-            }
-
-            if let Ok(tick) = flush_rx.try_recv() {
-                messages.iter_mut().for_each(|(addr, messages)| {
-                    let bundle = ClientboundBundle {
-                        tick,
-                        messages: messages.to_vec(),
-                    };
-                    *messages = Vec::new();
-                    let buffer = bincode::serialize(&bundle).unwrap();
-                    socket.send_to(&buffer, addr).unwrap();
-                })
-            }
-
-            let (n, addr) = match socket.recv_from(&mut buf) {
-                Ok((n, addr)) => (n, addr),
-                Err(e) if e.kind() == ErrorKind::WouldBlock => continue,
-                Err(e) => panic!("{e:?}"),
-            };
-            let Ok(message) = bincode::deserialize::<Serverbound>(&buf[0..n]) else {
-                continue;
-            };
-            println!("{n} from {addr:?}");
-
-            to_receive.push_back((Instant::now(), (addr, message)));
-            while let Some((time, _)) = to_receive.get(0) {
-                if *time + FORCED_LATENCY < Instant::now() {
-                    serverbound_tx
-                        .send(to_receive.pop_front().unwrap().1)
-                        .unwrap()
-                } else {
-                    break;
-                }
-            }
-        }
-    });
+    std::thread::spawn(|| handle_networking(socket, clientbound_rx, flush_rx, serverbound_tx));
 
     let mut next = 0;
     let mut tick = Tick(0);
@@ -87,20 +120,7 @@ fn main() -> Result<()> {
         while let Ok((addr, message)) = rx.try_recv() {
             if let Serverbound::AuthRequest = message {
                 let id = ClientId(next);
-                tx.send((addr, Clientbound::AuthSuccess(id))).unwrap();
-                clients.iter().for_each(|(other_addr, other)| {
-                    tx.send((*other_addr, Clientbound::Spawn(id, Vec3::ZERO)))
-                        .unwrap();
-                    tx.send((addr, Clientbound::Spawn(other.id, other.position.get())))
-                        .unwrap();
-                });
-                clients.insert(
-                    addr,
-                    Client {
-                        id,
-                        position: Cell::new(Vec3::ZERO),
-                    },
-                );
+                add_client(&mut clients, &tx, id, addr).unwrap();
                 next += 1;
             }
 

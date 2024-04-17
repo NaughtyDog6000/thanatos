@@ -11,7 +11,7 @@ use bytemuck::offset_of;
 use glam::Vec3;
 use hephaestus::{
     buffer::Static,
-    command, descriptor,
+    descriptor,
     image::{Image, ImageView},
     pipeline::{
         self, clear_colour, clear_depth, Framebuffer, ImageLayout, PipelineBindPoint, RenderPass,
