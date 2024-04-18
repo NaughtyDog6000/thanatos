@@ -2,6 +2,8 @@
 #![feature(vec_into_raw_parts)]
 
 mod vecany;
+pub mod utils;
+
 pub use vecany::VecAny;
 
 use std::{

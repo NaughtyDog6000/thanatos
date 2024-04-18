@@ -45,7 +45,7 @@ impl Vertex {
 #[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct UiVertex {
     pub position: Vec3,
-    pub padding: f32
+    pub padding: f32,
 }
 
 impl UiVertex {
@@ -365,7 +365,10 @@ impl Renderer {
             bytemuck::cast_slice::<UiVertex, u8>(
                 &ui_vertices
                     .into_iter()
-                    .map(|position| UiVertex { position, padding: 1.0 })
+                    .map(|position| UiVertex {
+                        position,
+                        padding: 1.0,
+                    })
                     .collect::<Vec<_>>(),
             ),
             BufferUsageFlags::VERTEX_BUFFER,

@@ -2,15 +2,14 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use glam::Vec2;
 use winit::{
-    dpi::PhysicalPosition,
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{Key, SmolStr},
-    platform::{pump_events::EventLoopExtPumpEvents, run_on_demand::EventLoopExtRunOnDemand},
+    platform::pump_events::EventLoopExtPumpEvents,
     window::WindowBuilder,
 };
 
-use crate::{event::Event, Timer, World};
+use crate::{event::Event, World};
 
 #[derive(Clone, Default)]
 pub struct Mouse {

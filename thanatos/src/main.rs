@@ -10,24 +10,24 @@ mod renderer;
 mod transform;
 mod window;
 
-use std::time::{Duration, Instant};
-
-use crate::{camera::Camera, collider::Ray, window::Window};
+use crate::{camera::Camera, window::Window};
 use anyhow::Result;
 use assets::{Material, Mesh};
 use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::{Gatherable, LootTable};
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Vec3, Vec4};
 use item::{Inventory, Item, ItemStack};
-use net::{Connection, OtherPlayer};
+use net::Connection;
 use player::Player;
 use renderer::{RenderObject, Renderer};
-use tecs::impl_archetype;
+use std::time::Duration;
+use tecs::{
+    impl_archetype,
+    utils::{Clock, State, Timer},
+};
 use thanatos_macros::Archetype;
 use transform::Transform;
-use window::{Keyboard, Mouse};
-use winit::event::MouseButton;
 
 #[derive(Archetype)]
 struct CopperOre {
@@ -41,82 +41,9 @@ struct Tree {
     pub render: RenderObject,
 }
 
-struct Timer {
-    start: Option<Instant>,
-    pub duration: Duration,
-}
-
-impl Timer {
-    pub fn new(duration: Duration) -> Self {
-        Self {
-            start: None,
-            duration,
-        }
-    }
-
-    pub fn start(&mut self) {
-        self.start = Some(Instant::now())
-    }
-
-    pub fn done(&self) -> bool {
-        self.start
-            .map(|start| start.elapsed() > self.duration)
-            .unwrap_or(true)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Clock {
-    frame_delta: Duration,
-    start: Instant,
-    last: Instant,
-}
-
-impl Clock {
-    pub fn add(world: World) -> World {
-        world
-            .with_resource(Self {
-                frame_delta: Duration::ZERO,
-                start: Instant::now(),
-                last: Instant::now(),
-            })
-            .with_ticker(Self::tick)
-    }
-
-    pub fn tick(world: &World) {
-        let mut clock = world.get_mut::<Clock>().unwrap();
-        let now = Instant::now();
-        clock.frame_delta = now - clock.last;
-        clock.last = now;
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum State {
-    Stopped,
-    Running,
-}
-
-fn raycast_test(world: &World) {
-    let mouse = world.get::<Mouse>().unwrap();
-    let window = world.get::<Window>().unwrap();
-
-    if mouse.is_down(MouseButton::Left) {
-        let camera = world.get::<Camera>().unwrap();
-        let world_pos = camera.ndc_to_world(window.screen_to_ndc(mouse.position));
-        let ray = Ray::from_points(camera.eye(), world_pos);
-
-        let colliders = world.query::<&Collider>();
-        colliders.iter().for_each(|collider| {
-            println!("{:?}", collider.intersects(ray));
-        })
-    }
-}
-
 pub type World = tecs::World<Event>;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     pretty_env_logger::init();
 
     let window = Window::new();
@@ -131,6 +58,7 @@ async fn main() -> Result<()> {
     let orange = assets.add_material(Material {
         colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
     });
+
     let mut world = World::new()
         .register::<Player>()
         .register::<CopperOre>()
@@ -142,7 +70,6 @@ async fn main() -> Result<()> {
         .with(renderer.add())
         .with(camera.add())
         .with(Clock::add)
-        .with_ticker(raycast_test)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -163,6 +90,7 @@ async fn main() -> Result<()> {
         },
         transform,
     });
+
     world.spawn(CopperOre {
         render: RenderObject {
             mesh: copper_ore,
