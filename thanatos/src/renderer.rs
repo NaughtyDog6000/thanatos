@@ -8,9 +8,9 @@ use crate::{
     World,
 };
 use bytemuck::offset_of;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use hephaestus::{
-    buffer::Static,
+    buffer::{Buffer, Static},
     command, descriptor,
     image::{Image, ImageView},
     pipeline::{
@@ -23,6 +23,7 @@ use hephaestus::{
     PipelineStageFlags, VkResult,
 };
 use log::info;
+use styx::Element;
 use tecs::EntityId;
 
 #[repr(C)]
@@ -37,6 +38,19 @@ impl Vertex {
         vertex::Info::new(size_of::<Self>())
             .attribute(AttributeType::Vec3, 0)
             .attribute(AttributeType::Vec3, offset_of!(Vertex, normal))
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct UiVertex {
+    pub position: Vec3,
+    pub padding: f32
+}
+
+impl UiVertex {
+    pub fn info() -> vertex::Info {
+        vertex::Info::new(size_of::<Self>()).attribute(AttributeType::Vec3, 0)
     }
 }
 
@@ -59,6 +73,7 @@ pub struct RenderObject {
 pub struct Renderer {
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
+    ui_pipeline: pipeline::Graphics,
     framebuffers: Vec<Framebuffer>,
     semaphores: Vec<Rc<Semaphore>>,
     frame_index: usize,
@@ -87,6 +102,16 @@ impl Renderer {
             &std::fs::read("assets/shaders/shader.frag.spv").unwrap(),
         )?;
 
+        let ui_vertex = ShaderModule::new(
+            &ctx.device,
+            &std::fs::read("assets/shaders/ui.vert.spv").unwrap(),
+        )?;
+
+        let ui_fragment = ShaderModule::new(
+            &ctx.device,
+            &std::fs::read("assets/shaders/ui.frag.spv").unwrap(),
+        )?;
+
         let render_pass = {
             let mut builder = RenderPass::builder();
             let colour = builder.attachment(
@@ -98,6 +123,11 @@ impl Renderer {
                 Format::D32_SFLOAT,
                 ImageLayout::UNDEFINED,
                 ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            );
+            builder.subpass(
+                Subpass::new(PipelineBindPoint::GRAPHICS)
+                    .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .depth(depth, ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
             );
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
@@ -122,6 +152,16 @@ impl Renderer {
             .depth()
             .build(&ctx.device)?;
 
+        let ui_pipeline = pipeline::Graphics::builder()
+            .vertex(&ui_vertex)
+            .vertex_info(UiVertex::info())
+            .fragment(&ui_fragment)
+            .render_pass(&render_pass)
+            .subpass(1)
+            .viewport(Viewport::Dynamic)
+            .depth()
+            .build(&ctx.device)?;
+
         let (depth_images, depth_views) = Self::create_depth_images(&ctx)?;
 
         let framebuffers = ctx
@@ -142,6 +182,7 @@ impl Renderer {
             ctx,
             render_pass,
             pipeline,
+            ui_pipeline,
             framebuffers,
             semaphores,
             frame_index: 0,
@@ -304,6 +345,41 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
+        let mut ui_box = styx::Box {};
+        let mut scene = styx::Scene::new();
+        let constraint = styx::Constraint {
+            min: Vec2::ZERO,
+            max: Vec2::new(1.0, 1.0),
+        };
+        let ui_size = ui_box.layout(constraint);
+        ui_box.paint(
+            styx::Area {
+                origin: Vec2::ZERO,
+                size: ui_size,
+            },
+            &mut scene,
+        );
+        let (ui_vertices, ui_indices) = scene.vertices();
+        let ui_vertex_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<UiVertex, u8>(
+                &ui_vertices
+                    .into_iter()
+                    .map(|position| UiVertex { position, padding: 1.0 })
+                    .collect::<Vec<_>>(),
+            ),
+            BufferUsageFlags::VERTEX_BUFFER,
+        )
+        .unwrap();
+        let ui_index_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<u32, u8>(
+                &ui_indices.iter().map(|x| *x as u32).collect::<Vec<_>>(),
+            ),
+            BufferUsageFlags::INDEX_BUFFER,
+        )
+        .unwrap();
+
         let cmd = renderer
             .ctx
             .command_pool
@@ -331,6 +407,14 @@ impl Renderer {
                     .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
             },
         );
+
+        let cmd = {
+            cmd.next_subpass()
+                .bind_graphics_pipeline(&renderer.ui_pipeline)
+                .bind_vertex_buffer(&ui_vertex_buffer, 0)
+                .bind_index_buffer(&ui_index_buffer)
+                .draw_indexed(ui_indices.len() as u32, 1, 0, 0, 0)
+        };
 
         let cmd = cmd.end_render_pass().end().unwrap();
 

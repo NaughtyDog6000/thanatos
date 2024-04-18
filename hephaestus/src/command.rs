@@ -25,7 +25,7 @@ pub struct Buffer {
     device: Rc<Device>,
     pool: Rc<Pool>,
     pub handle: vk::CommandBuffer,
-    resources: Vec<Rc<dyn Any>>
+    resources: Vec<Rc<dyn Any>>,
 }
 
 impl Buffer {
@@ -190,7 +190,11 @@ impl<'a> Recorder<'a> {
         self
     }
 
-    pub fn bind_vertex_buffer<T: buffer::Buffer + 'static>(mut self, buffer: &Rc<T>, binding: u32) -> Self {
+    pub fn bind_vertex_buffer<T: buffer::Buffer + 'static>(
+        mut self,
+        buffer: &Rc<T>,
+        binding: u32,
+    ) -> Self {
         unsafe {
             self.buffer.device.cmd_bind_vertex_buffers(
                 self.buffer.handle,
@@ -249,6 +253,15 @@ impl<'a> Recorder<'a> {
                 to.buffer(),
                 &[*region],
             )
+        }
+        self
+    }
+
+    pub fn next_subpass(self) -> Self {
+        unsafe {
+            self.buffer
+                .device
+                .cmd_next_subpass(self.buffer.handle, SubpassContents::INLINE)
         }
         self
     }

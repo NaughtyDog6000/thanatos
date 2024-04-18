@@ -161,6 +161,7 @@ impl Instance {
         let available = entry.enumerate_instance_extension_properties(None)?;
         let presentation_extensions =
             ash_window::enumerate_required_extensions(window.raw_display_handle())?;
+        println!("{:?}", available.iter().map(|extension| unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) }).collect::<Vec<_>>());
         let extensions = Self::EXTENSIONS
             .iter()
             .filter(|wanted| {
@@ -452,7 +453,7 @@ impl Context {
         window: T,
         extent: (u32, u32),
     ) -> VkResult<Self> {
-        let entry = Entry::linked();
+        let entry = unsafe { Entry::load() }.unwrap_or_else(|_| { println!("Failed to load vulkan dll, using linked vulkan"); Entry::linked() });
         let name = CString::new(name).unwrap();
         let instance = Rc::new(Instance::new(&entry, &name, &window)?);
         let physical = unsafe { instance.get_physical_device()? };

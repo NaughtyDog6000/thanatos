@@ -3,19 +3,19 @@ use std::rc::Rc;
 use ash::{
     prelude::VkResult,
     vk::{
-        self, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp,
-        ClearColorValue, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CompareOp,
-        CullModeFlags, DynamicState, Extent2D, Format, FramebufferCreateInfo, FrontFace,
-        GraphicsPipelineCreateInfo, Offset2D, Pipeline, PipelineCache,
-        PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
+        self, AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference,
+        AttachmentStoreOp, ClearColorValue, ClearDepthStencilValue, ClearValue,
+        ColorComponentFlags, CompareOp, CullModeFlags, DependencyFlags, DynamicState, Extent2D,
+        Format, FramebufferCreateInfo, FrontFace, GraphicsPipelineCreateInfo, Offset2D, Pipeline,
+        PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
         PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo,
         PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
         PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
-        PipelineShaderStageCreateInfo, PipelineVertexInputStateCreateInfo,
+        PipelineShaderStageCreateInfo, PipelineStageFlags, PipelineVertexInputStateCreateInfo,
         PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D,
         RenderPassCreateInfo, Result, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
-        SubpassDescription, VertexInputAttributeDescription, VertexInputBindingDescription,
-        VertexInputRate,
+        SubpassDependency, SubpassDescription, VertexInputAttributeDescription,
+        VertexInputBindingDescription, VertexInputRate,
     },
 };
 use log::error;
@@ -46,7 +46,10 @@ impl ShaderModule {
         let code = bytemuck::cast_slice::<u8, u32>(code);
         let create_info = ShaderModuleCreateInfo::builder().code(code);
         let handle = unsafe { device.create_shader_module(&create_info, None)? };
-        Ok(Self { device: device.clone(), handle })
+        Ok(Self {
+            device: device.clone(),
+            handle,
+        })
     }
 }
 
@@ -104,7 +107,11 @@ impl RenderPass {
             .layers(1);
 
         let handle = unsafe { device.create_framebuffer(&create_info, None)? };
-        Ok(Framebuffer { device: device.clone(), handle, extent })
+        Ok(Framebuffer {
+            device: device.clone(),
+            handle,
+            extent,
+        })
     }
 }
 
@@ -195,12 +202,29 @@ impl RenderPassBuilder {
                 }
             })
             .collect::<Vec<_>>();
+
+        let dependencies = (0..subpasses.len() - 1)
+            .map(|n| SubpassDependency {
+                dependency_flags: DependencyFlags::empty(),
+                src_subpass: n as u32,
+                dst_subpass: n as u32 + 1,
+                src_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                dst_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                src_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE,
+            })
+            .collect::<Vec<_>>();
+
         let create_info = RenderPassCreateInfo::builder()
             .attachments(&self.attachments)
-            .subpasses(&subpasses);
+            .subpasses(&subpasses)
+            .dependencies(&dependencies);
         let handle = unsafe { device.create_render_pass(&create_info, None)? };
 
-        Ok(RenderPass { device: device.clone(), handle })
+        Ok(RenderPass {
+            device: device.clone(),
+            handle,
+        })
     }
 }
 
@@ -411,7 +435,7 @@ impl<'a> GraphicsBuilder<'a> {
             device.create_graphics_pipelines(PipelineCache::null(), &[create_info], None)
         };
         match result {
-            Ok(handles) => Ok(Graphics{
+            Ok(handles) => Ok(Graphics {
                 device: device.clone(),
                 handle: *handles.first().unwrap(),
                 layout,

@@ -4,7 +4,8 @@ default-members = ["thanatos"]
 members = [
     "gltf", 
     "hephaestus", 
-    "hypnos", "nyx", 
+    "hypnos", 
+    "styx", 
     "tecs",
     "thanatos",
     "thanatos_macros"
