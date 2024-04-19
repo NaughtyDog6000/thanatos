@@ -15,8 +15,9 @@ use std::{
 
 pub use ash::prelude::VkResult;
 pub use ash::vk::{
-    BufferUsageFlags, ClearColorValue, ClearValue, DescriptorType, Extent2D, Format,
-    ImageAspectFlags, ImageUsageFlags, MemoryPropertyFlags, PipelineStageFlags,
+    AccessFlags, BufferUsageFlags, ClearColorValue, ClearValue, DescriptorType, Extent2D, Extent3D,
+    Format, ImageAspectFlags, ImageUsageFlags, MemoryPropertyFlags, Offset2D, Offset3D,
+    PipelineStageFlags,
 };
 use ash::{
     vk::{

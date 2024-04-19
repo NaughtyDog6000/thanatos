@@ -3,10 +3,7 @@ use std::rc::Rc;
 use ash::{
     prelude::VkResult,
     vk::{
-        self, ComponentMapping, DeviceMemory, Extent2D, Extent3D, Format, ImageAspectFlags,
-        ImageCreateInfo, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags,
-        ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryPropertyFlags,
-        SampleCountFlags, SharingMode,
+        self, BorderColor, CompareOp, ComponentMapping, DeviceMemory, Extent2D, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryPropertyFlags, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, SharingMode
     },
 };
 
@@ -97,6 +94,41 @@ impl ImageView {
 
 impl Drop for ImageView {
     fn drop(&mut self) {
+        println!("Dropping!");
         unsafe { self.device.destroy_image_view(self.handle, None) };
+    }
+}
+
+pub struct Sampler {
+    device: Rc<Device>,
+    pub handle: vk::Sampler
+}
+
+impl Sampler {
+    pub fn new(device: &Rc<Device>) -> VkResult<Self> {
+        let create_info = SamplerCreateInfo::builder()
+            .mag_filter(Filter::LINEAR)
+            .min_filter(Filter::LINEAR)
+            .address_mode_u(SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_v(SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_w(SamplerAddressMode::CLAMP_TO_EDGE)
+            .anisotropy_enable(false)
+            .border_color(BorderColor::INT_OPAQUE_BLACK)
+            .unnormalized_coordinates(true)
+            .compare_enable(false)
+            .compare_op(CompareOp::ALWAYS)
+            .mipmap_mode(SamplerMipmapMode::NEAREST)
+            .mip_lod_bias(0.0)
+            .min_lod(0.0)
+            .max_lod(0.0);
+
+        let handle = unsafe { device.create_sampler(&create_info, None)? };
+        Ok(Self { device: device.clone(), handle })
+    }
+}
+
+impl Drop for Sampler {
+    fn drop(&mut self) {
+        unsafe { self.device.destroy_sampler(self.handle, None) };
     }
 }

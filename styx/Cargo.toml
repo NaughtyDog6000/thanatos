@@ -6,5 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.82"
 bytemuck = { version = "1.15.0", features = ["derive"] }
+etagere = "0.2.10"
+fontdue = "0.8.0"
 glam = { version = "0.26", features = ["bytemuck"] }
 hephaestus = { version = "0.1.0", path = "../hephaestus" }

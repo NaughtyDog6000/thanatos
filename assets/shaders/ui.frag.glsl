@@ -4,8 +4,11 @@ layout(location = 0) in vec3 position;
 layout(location = 1) in vec4 colour;
 layout(location = 2) in vec4 area;
 layout(location = 3) in float radius;
+layout(location = 4) in vec2 texcoord;
 
 layout(location = 0) out vec4 outColour;
+
+layout(set = 0, binding = 2) uniform sampler2D atlas;
 
 float rect_sdf(
     vec2 absolute_pixel_position,
@@ -42,7 +45,7 @@ void main() {
     if (distance > 0.0) {
         outColour = vec4(0.0);
     } else {
-        outColour = colour;
+        outColour = vec4(texture(atlas, texcoord).x, 0.0, 0.0, 1.0);
     }
 }
 

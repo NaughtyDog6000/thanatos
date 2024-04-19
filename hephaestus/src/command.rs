@@ -3,14 +3,13 @@ use std::{any::Any, rc::Rc};
 use ash::{
     prelude::VkResult,
     vk::{
-        self, BufferCopy, ClearValue, CommandBufferAllocateInfo, CommandBufferBeginInfo,
-        CommandBufferLevel, CommandPoolCreateInfo, Extent2D, IndexType, Offset2D,
-        PipelineBindPoint, PipelineLayout, Rect2D, RenderPassBeginInfo, SubpassContents, Viewport,
+        self, AccessFlags, BufferCopy, BufferImageCopy, ClearValue, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandPoolCreateInfo, DependencyFlags, Extent2D, Extent3D, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, IndexType, Offset2D, Offset3D, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect2D, RenderPassBeginInfo, SubpassContents, Viewport
     },
 };
 
 use crate::{
     buffer, descriptor,
+    image::Image,
     pipeline::{Framebuffer, Graphics, RenderPass},
     Device, Queue,
 };
@@ -20,6 +19,20 @@ pub struct Region {
     pub to_offset: usize,
     pub size: usize,
 }
+
+pub struct BufferToImageRegion {
+    pub from_offset: usize,
+    pub to_offset: Offset3D,
+    pub to_extent: Extent3D,
+}
+
+pub struct TransitionLayout {
+    pub from: ImageLayout,
+    pub to: ImageLayout,
+    pub before: (AccessFlags, PipelineStageFlags),
+    pub after: (AccessFlags, PipelineStageFlags),
+}
+
 
 pub struct Buffer {
     device: Rc<Device>,
@@ -254,6 +267,70 @@ impl<'a> Recorder<'a> {
                 &[*region],
             )
         }
+        self
+    }
+
+    pub fn copy_buffer_to_image<A: buffer::Buffer>(
+        self,
+        from: &A,
+        to: &Image,
+        layout: ImageLayout,
+        region: BufferToImageRegion,
+    ) -> Self {
+        let region = BufferImageCopy::builder()
+            .buffer_offset(region.from_offset as u64)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(ImageSubresourceLayers {
+                aspect_mask: ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_offset(region.to_offset)
+            .image_extent(region.to_extent)
+            .build();
+
+        unsafe {
+            self.buffer.device.cmd_copy_buffer_to_image(
+                self.buffer.handle,
+                from.buffer(),
+                to.handle,
+                layout,
+                &[region],
+            )
+        }
+        self
+    }
+
+    pub fn transition_layout(self, image: &Image, info: TransitionLayout) -> Self {
+        let barrier = ImageMemoryBarrier::builder()
+            .old_layout(info.from)
+            .new_layout(info.to)
+            .image(image.handle)
+            .subresource_range(ImageSubresourceRange {
+                aspect_mask: ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .src_access_mask(info.before.0)
+            .dst_access_mask(info.after.0)
+            .build();
+
+        unsafe {
+            self.buffer.device.cmd_pipeline_barrier(
+                self.buffer.handle,
+                info.before.1,
+                info.after.1,
+                DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier],
+            )
+        }
+
         self
     }
 

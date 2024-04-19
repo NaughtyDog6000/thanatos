@@ -3,13 +3,11 @@ use std::{any::Any, rc::Rc};
 use ash::{
     prelude::VkResult,
     vk::{
-        self, DescriptorBufferInfo, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo,
-        DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding,
-        DescriptorSetLayoutCreateInfo, DescriptorType, ShaderStageFlags, WriteDescriptorSet,
+        self, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, ImageLayout, ShaderStageFlags, WriteDescriptorSet
     },
 };
 
-use crate::{buffer, Context, Device};
+use crate::{buffer, image::{ImageView, Sampler}, Context, Device};
 
 #[derive(Clone)]
 pub struct Layout {
@@ -112,6 +110,32 @@ impl Set {
         }
 
         self.resources.push(buffer.clone());
+        self
+    }
+
+    pub fn write_image(mut self, binding: usize, view: &Rc<ImageView>, sampler: &Rc<Sampler>, layout: ImageLayout) -> Self {
+        let image_info = DescriptorImageInfo {
+            image_layout: layout,
+            image_view: view.handle,
+            sampler: sampler.handle
+        };  
+
+        let image_infos = [image_info];
+
+        let write_info = WriteDescriptorSet::builder()
+            .dst_set(self.handle)
+            .dst_binding(binding as u32)
+            .dst_array_element(0)
+            .descriptor_type(self.layout.bindings[binding])
+            .image_info(&image_infos);
+        unsafe {
+            self.layout
+                .device
+                .update_descriptor_sets(&[*write_info], &[])
+        }
+
+        self.resources.push(view.clone());
+        self.resources.push(sampler.clone());
         self
     }
 
