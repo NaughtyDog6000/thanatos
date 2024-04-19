@@ -24,7 +24,7 @@ use hephaestus::{
     PipelineStageFlags, VkResult,
 };
 use log::info;
-use styx::Element;
+use styx::{components, Element, Font, FontSettings};
 use tecs::EntityId;
 
 #[repr(C)]
@@ -59,6 +59,7 @@ pub struct RenderObject {
 }
 
 pub struct Renderer {
+    font: Rc<Font>,
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
     ui: styx::Renderer,
@@ -147,7 +148,16 @@ impl Renderer {
             .map(|_| Semaphore::new(&ctx.device))
             .collect::<VkResult<Vec<Rc<Semaphore>>>>()?;
 
+        let font = Rc::new(
+            Font::from_bytes(
+                std::fs::read("assets/fonts/JetBrainsMono-Medium.ttf").unwrap(),
+                FontSettings::default(),
+            )
+            .unwrap(),
+        );
+
         Ok(Self {
+            font,
             ctx,
             render_pass,
             pipeline,
@@ -314,14 +324,26 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        let mut ui_box = styx::Box {
+        let mut ui = components::Box {
+            padding: 16.0,
+            child: components::Text {
+                text: String::from("Hello,World!"),
+                font: renderer.font.clone(),
+                font_size: 24.0,
+            },
             colour: Vec4::new(1.0, 0.0, 0.0, 1.0),
+            radius: 16.0,
         };
+
+        let ui_size = ui.layout(styx::Constraint {
+            min: Vec2::ZERO,
+            max: Vec2::new(size.width as f32, size.height as f32),
+        });
         let mut scene = styx::Scene::new();
-        ui_box.paint(
+        ui.paint(
             styx::Area {
-                origin: Vec2::ZERO,
-                size: Vec2::new(800.0, 600.0),
+                origin: Vec2::new(100.0, 100.0),
+                size: ui_size,
             },
             &mut scene,
         );

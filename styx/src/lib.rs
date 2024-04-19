@@ -1,16 +1,20 @@
+pub mod components;
+
+pub use fontdue::{Font, FontSettings};
+
 use std::{collections::HashMap, mem::size_of, rc::Rc};
 
 use anyhow::Result;
 use etagere::Size;
-use fontdue::{layout::TextStyle, Font, FontSettings};
-use glam::{Vec2, Vec3, Vec4};
+use fontdue::layout::TextStyle;
+use glam::{Vec2, Vec4};
 use hephaestus::{
     buffer::{Dynamic, Static},
     command::{self, BufferToImageRegion, TransitionLayout},
     descriptor,
     image::{Image, ImageView, Sampler},
     pipeline::{Graphics, ImageLayout, RenderPass, ShaderModule, Viewport},
-    task::{Fence, SubmitInfo, Task},
+    task::Task,
     vertex::{self, AttributeType},
     AccessFlags, BufferUsageFlags, Context, DescriptorType, Extent2D, Extent3D, Format,
     ImageAspectFlags, ImageUsageFlags, Offset3D, PipelineStageFlags,
@@ -74,11 +78,12 @@ pub struct Rectangle {
     colour: Vec4,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Text {
-    origin: Vec2,
-    text: String,
-    font_size: f32,
+    pub origin: Vec2,
+    pub text: String,
+    pub font_size: f32,
+    pub font: Rc<Font>,
 }
 
 #[derive(Default)]
@@ -113,10 +118,10 @@ impl Scene {
         self.layers.last_mut().unwrap().text.push(text)
     }
 
-    pub fn render(&self, font: &Font) -> Result<RenderedScene> {
+    pub fn render(&self) -> Result<RenderedScene> {
         let (mut vertices, mut indices, mut rectangles) = self.render_rectangles();
         let (mut text_vertices, mut text_indices, mut text_rectangles, image) =
-            self.render_text(font)?;
+            self.render_text()?;
         vertices.append(&mut text_vertices);
         indices.append(&mut text_indices);
         rectangles.append(&mut text_rectangles);
@@ -159,10 +164,7 @@ impl Scene {
         (vertices, indices, rectangles)
     }
 
-    fn render_text(
-        &self,
-        font: &Font,
-    ) -> Result<(Vec<Vec2>, Vec<u32>, Vec<RectangleData>, (Size, Vec<u8>))> {
+    fn render_text(&self) -> Result<(Vec<Vec2>, Vec<u32>, Vec<RectangleData>, (Size, Vec<u8>))> {
         let text = self
             .layers
             .iter()
@@ -175,16 +177,17 @@ impl Scene {
                 let mut layout = fontdue::layout::Layout::<()>::new(
                     fontdue::layout::CoordinateSystem::PositiveYDown,
                 );
-                layout.append(&[font], &TextStyle::new(&text.text, text.font_size, 0));
-                layout.glyphs().to_owned()
+                layout.append(&[text.font.clone()], &TextStyle::new(&text.text, text.font_size, 0));
+                (text.font.clone(), layout.glyphs().to_owned())
             })
             .collect::<Vec<_>>();
 
         let areas = layouts
             .iter()
-            .flat_map(|layout| {
+            .zip(&text)
+            .flat_map(|((_, layout), text)| {
                 layout.iter().map(|c| Area {
-                    origin: Vec2::new(c.x, c.y),
+                    origin: Vec2::new(c.x, c.y) + text.origin,
                     size: Vec2::new(c.width as f32, c.height as f32),
                 })
             })
@@ -192,11 +195,11 @@ impl Scene {
 
         let (vertices, indices) = Area::vertices(&areas);
 
-        let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, Size> =
-            HashMap::from_iter(layouts.iter().flat_map(|layout| {
+        let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, (Rc<Font>, Size)> =
+            HashMap::from_iter(layouts.iter().flat_map(|(font, layout)| {
                 layout
                     .iter()
-                    .map(|c| (c.key, Size::new(c.width as i32, c.height as i32)))
+                    .map(|c| (c.key, (font.clone(), Size::new(c.width as i32, c.height as i32))))
             }));
 
         let mut atlas = etagere::BucketedAtlasAllocator::new(Size::new(1024, 512));
@@ -210,12 +213,19 @@ impl Scene {
 
         let glyph_areas: HashMap<
             &fontdue::layout::GlyphRasterConfig,
-            etagere::euclid::Box2D<i32, etagere::euclid::UnknownUnit>,
-        > = HashMap::from_iter(glyphs.iter().map(|(key, size)| (key, allocate(*size))));
+            (
+                Rc<Font>,
+                etagere::euclid::Box2D<i32, etagere::euclid::UnknownUnit>,
+            ),
+        > = HashMap::from_iter(
+            glyphs
+                .iter()
+                .map(|(key, (font, size))| (key, (font.clone(), allocate(*size)))),
+        );
 
         let image_size = atlas.size();
         let mut image_data = vec![0; image_size.width as usize * image_size.height as usize];
-        for (key, area) in &glyph_areas {
+        for (key, (font, area)) in &glyph_areas {
             let (metrics, data) = font.rasterize_indexed(key.glyph_index, key.px);
             for y in 0..metrics.height {
                 let image_index =
@@ -228,9 +238,9 @@ impl Scene {
 
         let sample_areas = layouts
             .iter()
-            .flat_map(|layout| {
+            .flat_map(|(_, layout)| {
                 layout.iter().map(|c| {
-                    let area = glyph_areas.get(&c.key).unwrap();
+                    let (_, area) = glyph_areas.get(&c.key).unwrap();
                     Area {
                         origin: Vec2::new(area.min.x as f32, area.min.y as f32),
                         size: Vec2::new(
@@ -247,7 +257,12 @@ impl Scene {
             .zip(sample_areas)
             .map(|(area, sample_area)| RectangleData {
                 area: area.as_vec4(),
-                sample_area: Vec4::new(sample_area.origin.x, sample_area.origin.y, area.size.x, area.size.y),
+                sample_area: Vec4::new(
+                    sample_area.origin.x,
+                    sample_area.origin.y,
+                    area.size.x,
+                    area.size.y,
+                ),
                 colour: Vec4::ONE,
                 radius: Vec4::ZERO,
             })
@@ -341,7 +356,7 @@ impl Renderer {
     }
 
     pub fn prepare(&self, ctx: &Context, scene: &Scene, viewport: Vec2) -> Result<Frame> {
-        let rendered = scene.render(&self.font)?;
+        let rendered = scene.render()?;
         let num_indices = rendered.indices.len() as u32;
         let vertex_buffer = Static::new(
             ctx,
@@ -474,27 +489,4 @@ impl Renderer {
 pub trait Element {
     fn layout(&mut self, constraint: Constraint<Vec2>) -> Vec2;
     fn paint(&mut self, area: Area, scene: &mut Scene);
-}
-
-pub struct Box {
-    pub colour: Vec4,
-}
-
-impl Element for Box {
-    fn layout(&mut self, constraint: Constraint<Vec2>) -> Vec2 {
-        constraint.max
-    }
-
-    fn paint(&mut self, area: Area, scene: &mut Scene) {
-        scene.rectangle(Rectangle {
-            area,
-            colour: self.colour,
-            radius: 16.0,
-        });
-        scene.text(Text {
-            text: String::from("abASDkjakldsjlkAJSLKDjakldfvnbascl;|SxnsadjQadpoiasdp"),
-            font_size: 24.0,
-            origin: Vec2::new(100.0, 100.0),
-        })
-    }
 }

@@ -71,6 +71,10 @@ fn main() -> Result<()> {
             }
             _ => (),
         })
+        .with_ticker(|world| {
+            let clock = world.get::<Clock>().unwrap();
+            println!("FPS: {}", 1.0 / clock.delta.as_secs_f32());
+        })
         .with_ticker(Player::tick)
         .with_ticker(gather::tick)
         .with(net::add(cube, white));
