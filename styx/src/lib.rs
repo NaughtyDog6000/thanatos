@@ -199,17 +199,12 @@ impl Scene {
                     .map(|c| (c.key, Size::new(c.width as i32, c.height as i32)))
             }));
 
-        println!("{:?}", glyphs.iter().collect::<Vec<_>>());
-
         let mut atlas = etagere::BucketedAtlasAllocator::new(Size::new(1024, 512));
         let mut allocate = |size| loop {
-            println!("Allocating: {:?}", size);
             if let Some(etagere::Allocation { rectangle, .. }) = atlas.allocate(size) {
-                println!("{:?}", rectangle);
                 return rectangle;
             }
             let size = atlas.size();
-            println!("Expanding to {}x{}", size.width, size.height * 2);
             atlas.grow(Size::new(size.width, size.height * 2));
         };
 
@@ -300,6 +295,8 @@ pub struct Frame {
     index_buffer: Rc<Static>,
     num_indices: u32,
     set: Rc<descriptor::Set>,
+    view: Rc<ImageView>,
+    sampler: Rc<Sampler>,
 }
 
 impl Renderer {
@@ -368,7 +365,7 @@ impl Renderer {
             BufferUsageFlags::UNIFORM_BUFFER,
         )?;
 
-        let image = Image::new(
+        let image = Rc::new(Image::new(
             ctx,
             Format::R8_UNORM,
             Extent2D {
@@ -376,7 +373,7 @@ impl Renderer {
                 height: rendered.image.0.height as u32,
             },
             ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
-        )?;
+        )?);
         let buffer = Dynamic::new(ctx, rendered.image.1.len(), BufferUsageFlags::TRANSFER_SRC)?;
         buffer.write(&rendered.image.1)?;
 
@@ -423,20 +420,18 @@ impl Renderer {
 
         Task::run(&ctx.device, &ctx.device.queues.graphics, &cmd)?;
 
-        let view = Rc::new(ImageView::new(
+        let view = ImageView::new(
             &ctx.device,
-            image.handle,
+            &image,
             Format::R8_UNORM,
             ImageAspectFlags::COLOR,
             Extent2D {
                 width: rendered.image.0.width as u32,
                 height: rendered.image.0.height as u32,
             },
-        )?);
+        )?;
 
-        std::mem::forget(view.clone());
-
-        let sampler = Rc::new(Sampler::new(&ctx.device)?);
+        let sampler = Sampler::new(&ctx.device)?;
 
         let set = self
             .layout
@@ -451,15 +446,27 @@ impl Renderer {
             index_buffer,
             num_indices,
             set,
+            view,
+            sampler,
         })
     }
 
     pub fn draw<'a>(&'a self, frame: Frame, cmd: command::Recorder<'a>) -> command::Recorder<'a> {
+        let set = Rc::into_inner(frame.set)
+            .unwrap()
+            .write_image(
+                2,
+                &frame.view,
+                &frame.sampler,
+                ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )
+            .finish();
+
         cmd.next_subpass()
             .bind_graphics_pipeline(&self.pipeline)
             .bind_vertex_buffer(&frame.vertex_buffer, 0)
             .bind_index_buffer(&frame.index_buffer)
-            .bind_descriptor_set(&frame.set, 0)
+            .bind_descriptor_set(&set, 0)
             .draw_indexed(frame.num_indices, 1, 0, 0, 0)
     }
 }
@@ -487,7 +494,7 @@ impl Element for Box {
         scene.text(Text {
             text: String::from("Hello,World!"),
             font_size: 24.0,
-            origin: Vec2::new(100.0, 100.0)
+            origin: Vec2::new(100.0, 100.0),
         })
     }
 }

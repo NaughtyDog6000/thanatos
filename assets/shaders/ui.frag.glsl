@@ -45,7 +45,7 @@ void main() {
     if (distance > 0.0) {
         outColour = vec4(0.0);
     } else {
-        outColour = vec4(texture(atlas, texcoord).x, 0.0, 0.0, 1.0);
+        outColour = colour * textureLod(atlas, texcoord, 0).x;
     }
 }
 

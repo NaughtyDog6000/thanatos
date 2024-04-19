@@ -68,8 +68,8 @@ pub struct Renderer {
     tasks: VecDeque<Frame>,
     camera_layout: Rc<descriptor::Layout>,
     object_layout: Rc<descriptor::Layout>,
-    depth_images: Vec<Image>,
-    depth_views: Vec<ImageView>,
+    depth_images: Vec<Rc<Image>>,
+    depth_views: Vec<Rc<ImageView>>,
     pub ctx: Context,
 }
 
@@ -167,7 +167,7 @@ impl Renderer {
         move |world| world.with_resource(self).with_ticker(Self::draw)
     }
 
-    fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Image>, Vec<ImageView>)> {
+    fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Rc<Image>>, Vec<Rc<ImageView>>)> {
         let depth_images = ctx
             .swapchain
             .as_ref()
@@ -189,7 +189,7 @@ impl Renderer {
             .map(|image| {
                 ImageView::new(
                     &ctx.device,
-                    image.handle,
+                    &image,
                     Format::D32_SFLOAT,
                     ImageAspectFlags::DEPTH,
                     ctx.swapchain.as_ref().unwrap().extent,

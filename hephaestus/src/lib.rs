@@ -254,7 +254,7 @@ pub struct Swapchain {
     device: Rc<Device>,
     pub handle: SwapchainKHR,
     pub images: Vec<Image>,
-    pub views: Vec<ImageView>,
+    pub views: Vec<Rc<ImageView>>,
     pub format: Format,
     pub extent: Extent2D,
 }
@@ -331,7 +331,7 @@ impl Swapchain {
         let views = images
             .iter()
             .map(|image| {
-                ImageView::new(
+                ImageView::new_from_handle(
                     device,
                     *image,
                     format.format,
