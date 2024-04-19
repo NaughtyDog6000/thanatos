@@ -36,11 +36,6 @@ struct CopperOre {
     pub gatherable: Gatherable,
 }
 
-#[derive(Archetype)]
-struct Tree {
-    pub render: RenderObject,
-}
-
 pub type World = tecs::World<Event>;
 
 fn main() -> Result<()> {

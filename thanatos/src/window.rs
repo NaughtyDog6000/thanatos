@@ -36,7 +36,7 @@ pub struct Keyboard {
 
 impl Keyboard {
     pub fn is_down<T: IntoKey>(&self, key: T) -> bool {
-        self.down.get(&key.into_key()).is_some()
+        self.down.contains(&key.into_key())
     }
 }
 

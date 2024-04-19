@@ -65,7 +65,7 @@ pub fn tick(world: &World) {
             let transform = transforms.iter().next().unwrap();
             let Some((_, entity)) = gatherables
                 .iter()
-                .zip(entities.into_iter())
+                .zip(entities)
                 .filter(|(gatherable, _)| gatherable.timer.done())
                 .filter(|(gatherable, _)| gatherable.gatherable(transform.translation))
                 .next()

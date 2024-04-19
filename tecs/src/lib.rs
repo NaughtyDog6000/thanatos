@@ -16,8 +16,8 @@ use std::{
 };
 
 pub trait System<E> {
-    fn event(&self, world: &World<E>, event: &E) {}
-    fn tick(&self, world: &World<E>) {}
+    fn event(&self, _world: &World<E>, _event: &E) {}
+    fn tick(&self, _world: &World<E>) {}
 }
 
 struct Handler<T>(T);
@@ -148,8 +148,7 @@ impl Table {
     pub fn has_column<T: 'static>(&self) -> bool {
         self.columns
             .iter()
-            .find(|(ty, _)| *ty == TypeId::of::<T>())
-            .is_some()
+            .any(|(ty, _)| *ty == TypeId::of::<T>())
     }
 
     pub fn column<T: 'static>(&self) -> Option<Ref<'_, [T]>> {
@@ -158,7 +157,7 @@ impl Table {
             .find(|(ty, _)| *ty == TypeId::of::<T>())
             .map(|(_, column)| {
                 Ref::map(column.borrow(), |column| {
-                    column.data.downcast_ref::<T>().expect(&format!(
+                    column.data.downcast_ref::<T>().unwrap_or_else(|| panic!(
                         "Failed to downcast {}",
                         std::any::type_name::<T>()
                     ))
@@ -180,6 +179,10 @@ impl Table {
 
     pub fn len(&self) -> usize {
         self.length.get()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.length.get() == 0
     }
 }
 

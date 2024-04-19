@@ -22,7 +22,6 @@ use crate::{
 
 pub struct Connection {
     socket: UdpSocket,
-    buffer: Vec<u8>,
     pub id: Option<ClientId>,
     pub tick: Tick,
 }
@@ -34,7 +33,6 @@ impl Connection {
         socket.set_nonblocking(true)?;
         let mut conn = Self {
             socket,
-            buffer: Vec::new(),
             id: None,
             tick: Tick(0),
         };
@@ -109,8 +107,8 @@ impl Positions {
         match self.queue.len() {
             0 => None,
             1 => self.queue.get(1).map(|x| x.1),
-            n => {
-                let first = self.queue.get(0).unwrap();
+            _ => {
+                let first = self.queue.front().unwrap();
                 let second = self.queue.get(1).unwrap();
                 if second.0 < now {
                     self.queue.pop_front();

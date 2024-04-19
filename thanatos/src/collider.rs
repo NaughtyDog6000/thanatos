@@ -40,7 +40,7 @@ impl Collider {
             ColliderKind::Aabb(size) => point
                 .to_array()
                 .into_iter()
-                .zip(size.to_array().into_iter())
+                .zip(size.to_array())
                 .all(|(distance, max_distance)| distance.abs() < max_distance),
         }
     }

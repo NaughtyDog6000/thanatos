@@ -64,7 +64,7 @@ impl Scene {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        for (depth, layer) in self.layers.iter().enumerate() {
+        for layer in self.layers.iter() {
             for rectangle in &layer.rectangles {
                 indices.append(
                     &mut [0, 1, 2, 2, 3, 0]
@@ -85,6 +85,12 @@ impl Scene {
         }
 
         (vertices, indices)
+    }
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -129,7 +135,7 @@ impl Renderer {
             ShaderModule::new(&ctx.device, &std::fs::read("assets/shaders/ui.frag.spv")?)?;
 
         let layout = descriptor::Layout::new(
-            &ctx,
+            ctx,
             &[
                 DescriptorType::STORAGE_BUFFER,
                 DescriptorType::UNIFORM_BUFFER,
@@ -141,7 +147,7 @@ impl Renderer {
             .vertex(&ui_vertex)
             .vertex_info(Vertex::info())
             .fragment(&ui_fragment)
-            .render_pass(&render_pass)
+            .render_pass(render_pass)
             .subpass(subpass as u32)
             .viewport(Viewport::Dynamic)
             .layouts(vec![&layout])

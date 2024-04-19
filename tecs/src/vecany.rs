@@ -85,6 +85,10 @@ impl VecAny {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn ty(&self) -> TypeId {
         self.ty
     }

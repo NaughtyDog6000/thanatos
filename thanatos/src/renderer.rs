@@ -11,8 +11,8 @@ use anyhow::Result;
 use bytemuck::offset_of;
 use glam::{Vec2, Vec3, Vec4};
 use hephaestus::{
-    buffer::{Buffer, Static},
-    command, descriptor,
+    buffer::Static,
+    descriptor,
     image::{Image, ImageView},
     pipeline::{
         self, clear_colour, clear_depth, Framebuffer, ImageLayout, PipelineBindPoint, RenderPass,
@@ -176,7 +176,7 @@ impl Renderer {
             .iter()
             .map(|_| {
                 Image::new(
-                    &ctx,
+                    ctx,
                     Format::D32_SFLOAT,
                     ctx.swapchain.as_ref().unwrap().extent,
                     ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,

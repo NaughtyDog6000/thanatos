@@ -136,7 +136,7 @@ impl Task {
                 .collect::<Vec<_>>(),
         );
         self.semaphores
-            .extend_from_slice(&info.signal);
+            .extend_from_slice(info.signal);
         self.fences.push(info.fence);
         self.cmds.push(info.cmd.clone());
 

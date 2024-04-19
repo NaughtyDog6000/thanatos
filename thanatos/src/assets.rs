@@ -23,7 +23,7 @@ impl Mesh {
                 .unwrap(),
         )
         .chunks(3)
-        .map(|pos| Vec3::from_slice(pos))
+        .map(Vec3::from_slice)
         .collect();
 
         let normals: Vec<Vec3> = bytemuck::cast_slice::<u8, f32>(
@@ -32,12 +32,12 @@ impl Mesh {
                 .unwrap(),
         )
         .chunks(3)
-        .map(|pos| Vec3::from_slice(pos))
+        .map(Vec3::from_slice)
         .collect();
 
         let vertices: Vec<Vertex> = positions
             .into_iter()
-            .zip(normals.into_iter())
+            .zip(normals)
             .map(|(position, normal)| Vertex { position, normal })
             .collect();
 
