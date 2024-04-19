@@ -247,7 +247,7 @@ impl Scene {
             .zip(sample_areas)
             .map(|(area, sample_area)| RectangleData {
                 area: area.as_vec4(),
-                sample_area: sample_area.as_vec4(),
+                sample_area: Vec4::new(sample_area.origin.x, sample_area.origin.y, area.size.x, area.size.y),
                 colour: Vec4::ONE,
                 radius: Vec4::ZERO,
             })
@@ -492,7 +492,7 @@ impl Element for Box {
             radius: 16.0,
         });
         scene.text(Text {
-            text: String::from("Hello,World!"),
+            text: String::from("abASDkjakldsjlkAJSLKDjakldfvnbascl;|SxnsadjQadpoiasdp"),
             font_size: 24.0,
             origin: Vec2::new(100.0, 100.0),
         })
