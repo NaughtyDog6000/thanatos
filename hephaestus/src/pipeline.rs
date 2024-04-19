@@ -3,19 +3,7 @@ use std::rc::Rc;
 use ash::{
     prelude::VkResult,
     vk::{
-        self, AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference,
-        AttachmentStoreOp, ClearColorValue, ClearDepthStencilValue, ClearValue,
-        ColorComponentFlags, CompareOp, CullModeFlags, DependencyFlags, DynamicState, Extent2D,
-        Format, FramebufferCreateInfo, FrontFace, GraphicsPipelineCreateInfo, Offset2D, Pipeline,
-        PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo,
-        PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo,
-        PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo,
-        PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo,
-        PipelineShaderStageCreateInfo, PipelineStageFlags, PipelineVertexInputStateCreateInfo,
-        PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D,
-        RenderPassCreateInfo, Result, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags,
-        SubpassDependency, SubpassDescription, VertexInputAttributeDescription,
-        VertexInputBindingDescription, VertexInputRate,
+        self, AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, BlendFactor, BlendOp, ClearColorValue, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CompareOp, CullModeFlags, DependencyFlags, DynamicState, Extent2D, Format, FramebufferCreateInfo, FrontFace, GraphicsPipelineCreateInfo, Offset2D, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPassCreateInfo, Result, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, SubpassDependency, SubpassDescription, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate
     },
 };
 use log::error;
@@ -211,7 +199,7 @@ impl RenderPassBuilder {
                 src_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 dst_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 src_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE,
-                dst_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_access_mask: AccessFlags::COLOR_ATTACHMENT_READ | AccessFlags::COLOR_ATTACHMENT_WRITE,
             })
             .collect::<Vec<_>>();
 
@@ -382,8 +370,8 @@ impl<'a> GraphicsBuilder<'a> {
             .rasterizer_discard_enable(false)
             .polygon_mode(PolygonMode::FILL)
             .line_width(1.0)
-            .cull_mode(CullModeFlags::BACK)
-            .front_face(FrontFace::CLOCKWISE)
+            .cull_mode(CullModeFlags::FRONT)
+            .front_face(FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
         let multisampling = PipelineMultisampleStateCreateInfo::builder()
@@ -404,7 +392,13 @@ impl<'a> GraphicsBuilder<'a> {
 
         let attachment = PipelineColorBlendAttachmentState::builder()
             .color_write_mask(ColorComponentFlags::RGBA)
-            .blend_enable(false)
+            .blend_enable(true)
+            .src_color_blend_factor(BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(BlendFactor::ONE_MINUS_SRC_ALPHA)
+            .color_blend_op(BlendOp::ADD)
+            .src_alpha_blend_factor(BlendFactor::ONE)
+            .dst_alpha_blend_factor(BlendFactor::ZERO)
+            .alpha_blend_op(BlendOp::ADD)
             .build();
         let attachments = [attachment];
 

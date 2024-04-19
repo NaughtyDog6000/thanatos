@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     world.spawn(Player {
         render: RenderObject {
             mesh: cube,
-            material: white,
+            material: orange,
         },
         transform,
     });

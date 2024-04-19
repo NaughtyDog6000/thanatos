@@ -7,8 +7,9 @@ use crate::{
     window::Window,
     World,
 };
+use anyhow::Result;
 use bytemuck::offset_of;
-use glam::{Vec2, Vec3};
+use glam::{Vec2, Vec3, Vec4};
 use hephaestus::{
     buffer::{Buffer, Static},
     command, descriptor,
@@ -41,19 +42,6 @@ impl Vertex {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct UiVertex {
-    pub position: Vec3,
-    pub padding: f32,
-}
-
-impl UiVertex {
-    pub fn info() -> vertex::Info {
-        vertex::Info::new(size_of::<Self>()).attribute(AttributeType::Vec3, 0)
-    }
-}
-
 struct Frame {
     task: Task,
     fence: Rc<Fence>,
@@ -73,7 +61,7 @@ pub struct RenderObject {
 pub struct Renderer {
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
-    ui_pipeline: pipeline::Graphics,
+    ui: styx::Renderer,
     framebuffers: Vec<Framebuffer>,
     semaphores: Vec<Rc<Semaphore>>,
     frame_index: usize,
@@ -88,7 +76,7 @@ pub struct Renderer {
 impl Renderer {
     pub const FRAMES_IN_FLIGHT: usize = 3;
 
-    pub fn new(window: &Window) -> VkResult<Self> {
+    pub fn new(window: &Window) -> Result<Self> {
         let size = window.window.inner_size();
         let ctx = Context::new("thanatos", &window.window, (size.width, size.height))?;
 
@@ -100,16 +88,6 @@ impl Renderer {
         let fragment = ShaderModule::new(
             &ctx.device,
             &std::fs::read("assets/shaders/shader.frag.spv").unwrap(),
-        )?;
-
-        let ui_vertex = ShaderModule::new(
-            &ctx.device,
-            &std::fs::read("assets/shaders/ui.vert.spv").unwrap(),
-        )?;
-
-        let ui_fragment = ShaderModule::new(
-            &ctx.device,
-            &std::fs::read("assets/shaders/ui.frag.spv").unwrap(),
         )?;
 
         let render_pass = {
@@ -131,8 +109,7 @@ impl Renderer {
             );
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
-                    .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                    .depth(depth, ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+                    .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
             );
             builder.build(&ctx.device)?
         };
@@ -152,15 +129,7 @@ impl Renderer {
             .depth()
             .build(&ctx.device)?;
 
-        let ui_pipeline = pipeline::Graphics::builder()
-            .vertex(&ui_vertex)
-            .vertex_info(UiVertex::info())
-            .fragment(&ui_fragment)
-            .render_pass(&render_pass)
-            .subpass(1)
-            .viewport(Viewport::Dynamic)
-            .depth()
-            .build(&ctx.device)?;
+        let ui = styx::Renderer::new(&ctx, &render_pass, 1)?;
 
         let (depth_images, depth_views) = Self::create_depth_images(&ctx)?;
 
@@ -182,7 +151,7 @@ impl Renderer {
             ctx,
             render_pass,
             pipeline,
-            ui_pipeline,
+            ui,
             framebuffers,
             semaphores,
             frame_index: 0,
@@ -345,43 +314,25 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        let mut ui_box = styx::Box {};
-        let mut scene = styx::Scene::new();
-        let constraint = styx::Constraint {
-            min: Vec2::ZERO,
-            max: Vec2::new(1.0, 1.0),
+        let mut ui_box = styx::Box {
+            colour: Vec4::new(1.0, 0.0, 0.0, 1.0),
         };
-        let ui_size = ui_box.layout(constraint);
+        let mut scene = styx::Scene::new();
         ui_box.paint(
             styx::Area {
                 origin: Vec2::ZERO,
-                size: ui_size,
+                size: Vec2::new(800.0, 600.0),
             },
             &mut scene,
         );
-        let (ui_vertices, ui_indices) = scene.vertices();
-        let ui_vertex_buffer = Static::new(
-            &renderer.ctx,
-            bytemuck::cast_slice::<UiVertex, u8>(
-                &ui_vertices
-                    .into_iter()
-                    .map(|position| UiVertex {
-                        position,
-                        padding: 1.0,
-                    })
-                    .collect::<Vec<_>>(),
-            ),
-            BufferUsageFlags::VERTEX_BUFFER,
-        )
-        .unwrap();
-        let ui_index_buffer = Static::new(
-            &renderer.ctx,
-            bytemuck::cast_slice::<u32, u8>(
-                &ui_indices.iter().map(|x| *x as u32).collect::<Vec<_>>(),
-            ),
-            BufferUsageFlags::INDEX_BUFFER,
-        )
-        .unwrap();
+        let frame = renderer
+            .ui
+            .prepare(
+                &renderer.ctx,
+                &scene,
+                Vec2::new(size.width as f32, size.height as f32),
+            )
+            .unwrap();
 
         let cmd = renderer
             .ctx
@@ -411,13 +362,7 @@ impl Renderer {
             },
         );
 
-        let cmd = {
-            cmd.next_subpass()
-                .bind_graphics_pipeline(&renderer.ui_pipeline)
-                .bind_vertex_buffer(&ui_vertex_buffer, 0)
-                .bind_index_buffer(&ui_index_buffer)
-                .draw_indexed(ui_indices.len() as u32, 1, 0, 0, 0)
-        };
+        let cmd = renderer.ui.draw(frame, cmd);
 
         let cmd = cmd.end_render_pass().end().unwrap();
 

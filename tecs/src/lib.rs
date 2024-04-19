@@ -391,9 +391,7 @@ impl<E, T: 'static> Query<E> for With<T> {
         table.1.has_column::<T>()
     }
 
-    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
-        ()
-    }
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
 }
 impl<E, T: 'static> QueryOne<E> for With<T> {
     type Output<'a> = ();
@@ -402,9 +400,7 @@ impl<E, T: 'static> QueryOne<E> for With<T> {
         table.1.has_column::<T>()
     }
 
-    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
-        ()
-    }
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
 }
 
 pub struct Without<T>(PhantomData<T>);
@@ -415,9 +411,7 @@ impl<E, T: 'static> Query<E> for Without<T> {
         !table.1.has_column::<T>()
     }
 
-    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
-        ()
-    }
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
 }
 impl<E, T: 'static> QueryOne<E> for Without<T> {
     type Output<'a> = ();
@@ -426,9 +420,7 @@ impl<E, T: 'static> QueryOne<E> for Without<T> {
         !table.1.has_column::<T>()
     }
 
-    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
-        ()
-    }
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
 }
 
 pub struct Is<T>(PhantomData<T>);
@@ -439,9 +431,7 @@ impl<E, T: Archetype> Query<E> for Is<T> {
         table.0 == TypeId::of::<T>()
     }
 
-    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
-        ()
-    }
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
 }
 impl<E, T: Archetype> QueryOne<E> for Is<T> {
     type Output<'a> = ();
@@ -450,9 +440,7 @@ impl<E, T: Archetype> QueryOne<E> for Is<T> {
         table.0 == TypeId::of::<T>()
     }
 
-    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
-        ()
-    }
+    fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
 }
 
 impl<E> Query<E> for EntityId {
