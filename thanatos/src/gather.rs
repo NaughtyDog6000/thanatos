@@ -1,11 +1,13 @@
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 use rand::Rng;
-use tecs::{EntityId, Is};
+use styx::components::{self, Container, Text, VAlign, VGroup};
+use tecs::{utils::Name, EntityId, Is};
 
 use crate::{
     collider::Collider,
     item::{Inventory, ItemStack},
     player::Player,
+    renderer::{Anchor, Renderer, Ui},
     transform::Transform,
     window::Keyboard,
     Timer, World,
@@ -58,23 +60,56 @@ impl Gatherable {
 
 pub fn tick(world: &World) {
     let keyboard = world.get::<Keyboard>().unwrap();
-    if keyboard.is_down("f") {
-        let entity = {
-            let (gatherables, entities) = world.query::<(&Gatherable, EntityId)>();
-            let (transforms, _) = world.query::<(&Transform, Is<Player>)>();
-            let transform = transforms.iter().next().unwrap();
-            let Some((_, entity)) = gatherables
-                .iter()
-                .zip(entities)
-                .filter(|(gatherable, _)| gatherable.timer.done())
-                .filter(|(gatherable, _)| gatherable.gatherable(transform.translation))
-                .next()
-            else {
-                return;
-            };
-            entity
+    let entity = {
+        let (gatherables, entities) = world.query::<(&Gatherable, EntityId)>();
+        let (transforms, _) = world.query::<(&Transform, Is<Player>)>();
+        let transform = transforms.iter().next().unwrap();
+        let Some((_, entity)) = gatherables
+            .iter()
+            .zip(entities)
+            .filter(|(gatherable, _)| gatherable.timer.done())
+            .filter(|(gatherable, _)| gatherable.gatherable(transform.translation))
+            .next()
+        else {
+            return;
         };
+        entity
+    };
 
+    {
+        let mut ui = world.get_mut::<Ui>().unwrap();
+        let font = ui.font.clone();
+        let name = world.get_component::<Name>(entity);
+        ui.add(
+            Anchor::Cursor,
+            VGroup::new(VAlign::Center, 4.0)
+                .add(Container {
+                    padding: 4.0,
+                    colour: Vec4::new(0.2, 0.2, 0.2, 1.0),
+                    radius: 4.0,
+                    child: Text {
+                        font: font.clone(),
+                        text: String::from("F"),
+                        font_size: 24.0,
+                    },
+                })
+                .add(Container {
+                    padding: 4.0,
+                    colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
+                    radius: 4.0,
+                    child: Text {
+                        font: font.clone(),
+                        text: match name {
+                            Some(name) => format!("Gather {name}"),
+                            None => String::from("Gather"),
+                        },
+                        font_size: 16.0,
+                    },
+                }),
+        )
+    }
+
+    if keyboard.is_down("f") {
         let mut inventory = world.get_mut::<Inventory>().unwrap();
         let mut gatherable = world.get_component_mut::<Gatherable>(entity).unwrap();
         gatherable

@@ -92,6 +92,12 @@ pub struct Layer {
     text: Vec<Text>,
 }
 
+impl Layer {
+    pub fn is_empty(&self) -> bool {
+        self.rectangles.is_empty() && self.text.is_empty()
+    }
+}
+
 pub struct Scene {
     layers: Vec<Layer>,
 }
@@ -177,7 +183,10 @@ impl Scene {
                 let mut layout = fontdue::layout::Layout::<()>::new(
                     fontdue::layout::CoordinateSystem::PositiveYDown,
                 );
-                layout.append(&[text.font.clone()], &TextStyle::new(&text.text, text.font_size, 0));
+                layout.append(
+                    &[text.font.clone()],
+                    &TextStyle::new(&text.text, text.font_size, 0),
+                );
                 (text.font.clone(), layout.glyphs().to_owned())
             })
             .collect::<Vec<_>>();
@@ -197,13 +206,22 @@ impl Scene {
 
         let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, (Rc<Font>, Size)> =
             HashMap::from_iter(layouts.iter().flat_map(|(font, layout)| {
-                layout
-                    .iter()
-                    .map(|c| (c.key, (font.clone(), Size::new(c.width as i32, c.height as i32))))
+                layout.iter().map(|c| {
+                    (
+                        c.key,
+                        (font.clone(), Size::new(c.width as i32, c.height as i32)),
+                    )
+                })
             }));
 
         let mut atlas = etagere::BucketedAtlasAllocator::new(Size::new(1024, 512));
-        let mut allocate = |size| loop {
+        let mut allocate = |size: etagere::euclid::Size2D<i32, etagere::euclid::UnknownUnit>| loop {
+            if size.width == 0 || size.height == 0 {
+                return etagere::euclid::Box2D::new(
+                    etagere::euclid::Point2D::new(0, 0),
+                    etagere::euclid::Point2D::new(0, 0),
+                );
+            }
             if let Some(etagere::Allocation { rectangle, .. }) = atlas.allocate(size) {
                 return rectangle;
             }
@@ -269,6 +287,10 @@ impl Scene {
             .collect();
 
         Ok((vertices, indices, rectangles, (image_size, image_data)))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.layers.iter().all(|layer| layer.is_empty())
     }
 }
 

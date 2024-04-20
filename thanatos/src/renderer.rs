@@ -4,7 +4,7 @@ use crate::{
     assets::{self, Material, MaterialId, MeshId},
     camera::Camera,
     transform::Transform,
-    window::Window,
+    window::{Mouse, Window},
     World,
 };
 use anyhow::Result;
@@ -58,8 +58,70 @@ pub struct RenderObject {
     pub material: MaterialId,
 }
 
+#[derive(Clone, Copy)]
+pub enum Anchor {
+    TopLeft,
+    Cursor,
+    Center,
+    BottomRight,
+}
+
+pub struct Ui {
+    pub font: Rc<Font>,
+    elements: Vec<(Anchor, Box<dyn Element>)>,
+}
+
+impl Ui {
+    pub fn new() -> Self {
+        let font = Rc::new(
+            Font::from_bytes(
+                std::fs::read("assets/fonts/JetBrainsMono-Medium.ttf").unwrap(),
+                FontSettings::default(),
+            )
+            .unwrap(),
+        );
+
+        Self {
+            font,
+            elements: Vec::new(),
+        }
+    }
+
+    pub fn add<T: Element + 'static>(&mut self, anchor: Anchor, element: T) {
+        self.elements.push((anchor, Box::new(element)))
+    }
+
+    pub fn paint(&mut self, world: &World) -> styx::Scene {
+        let window = world.get::<Window>().unwrap();
+        let mouse = world.get::<Mouse>().unwrap();
+        let window_size = window.window.inner_size();
+        let window_size = Vec2::new(window_size.width as f32, window_size.height as f32);
+
+        let constraint = styx::Constraint {
+            min: Vec2::ZERO,
+            max: window_size,
+        };
+
+        let mut scene = styx::Scene::new();
+        self.elements.iter_mut().for_each(|(anchor, element)| {
+            let size = element.layout(constraint);
+            let origin = match anchor {
+                Anchor::TopLeft => Vec2::ZERO,
+                Anchor::Center => (window_size - size) / 2.0,
+                Anchor::Cursor => mouse.position,
+                Anchor::BottomRight => window_size - size,
+            };
+
+            element.paint(styx::Area { origin, size }, &mut scene);
+        });
+
+        self.elements.clear();
+
+        scene
+    }
+}
+
 pub struct Renderer {
-    font: Rc<Font>,
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
     ui: styx::Renderer,
@@ -148,16 +210,7 @@ impl Renderer {
             .map(|_| Semaphore::new(&ctx.device))
             .collect::<VkResult<Vec<Rc<Semaphore>>>>()?;
 
-        let font = Rc::new(
-            Font::from_bytes(
-                std::fs::read("assets/fonts/JetBrainsMono-Medium.ttf").unwrap(),
-                FontSettings::default(),
-            )
-            .unwrap(),
-        );
-
         Ok(Self {
-            font,
             ctx,
             render_pass,
             pipeline,
@@ -174,7 +227,12 @@ impl Renderer {
     }
 
     pub fn add(self) -> impl FnOnce(World) -> World {
-        move |world| world.with_resource(self).with_ticker(Self::draw)
+        move |world| {
+            world
+                .with_resource(self)
+                .with_resource(Ui::new())
+                .with_ticker(Self::draw)
+        }
     }
 
     fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Rc<Image>>, Vec<Rc<ImageView>>)> {
@@ -324,48 +382,21 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        let mut ui = components::HGroup::new(components::HAlign::Center, 16.0)
-            .add(components::Container {
-                padding: 16.0,
-                child: components::Text {
-                    text: String::from("Hello,World!"),
-                    font: renderer.font.clone(),
-                    font_size: 24.0,
-                },
-                colour: Vec4::new(1.0, 0.0, 0.0, 1.0),
-                radius: 16.0,
-            })
-            .add(components::Container {
-                padding: 32.0,
-                child: components::Text {
-                    text: String::from("Testing!"),
-                    font: renderer.font.clone(),
-                    font_size: 32.0,
-                },
-                colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
-                radius: 4.0,
-            });
-
-        let ui_size = ui.layout(styx::Constraint {
-            min: Vec2::ZERO,
-            max: Vec2::new(size.width as f32, size.height as f32),
-        });
-        let mut scene = styx::Scene::new();
-        ui.paint(
-            styx::Area {
-                origin: Vec2::new(100.0, 100.0),
-                size: ui_size,
-            },
-            &mut scene,
-        );
-        let frame = renderer
-            .ui
-            .prepare(
-                &renderer.ctx,
-                &scene,
-                Vec2::new(size.width as f32, size.height as f32),
+        let scene = world.get_mut::<Ui>().unwrap().paint(&world);
+        let frame = if !scene.is_empty() {
+            Some(
+                renderer
+                    .ui
+                    .prepare(
+                        &renderer.ctx,
+                        &scene,
+                        Vec2::new(size.width as f32, size.height as f32),
+                    )
+                    .unwrap(),
             )
-            .unwrap();
+        } else {
+            None
+        };
 
         let cmd = renderer
             .ctx
@@ -395,7 +426,10 @@ impl Renderer {
             },
         );
 
-        let cmd = renderer.ui.draw(frame, cmd);
+        let cmd = match frame {
+            Some(frame) => renderer.ui.draw(frame, cmd),
+            None => cmd.next_subpass(),
+        };
 
         let cmd = cmd.end_render_pass().end().unwrap();
 

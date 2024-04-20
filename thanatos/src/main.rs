@@ -17,14 +17,14 @@ use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::{Gatherable, LootTable};
 use glam::{Vec3, Vec4};
-use item::{Inventory, Item, ItemStack};
+use item::{Inventory, InventoryUi, Item, ItemStack};
 use net::Connection;
 use player::Player;
 use renderer::{RenderObject, Renderer};
 use std::time::Duration;
 use tecs::{
     impl_archetype,
-    utils::{Clock, State, Timer},
+    utils::{Clock, Name, State, Timer},
 };
 use thanatos_macros::Archetype;
 use transform::Transform;
@@ -34,6 +34,7 @@ struct CopperOre {
     pub render: RenderObject,
     pub transform: Transform,
     pub gatherable: Gatherable,
+    pub name: Name
 }
 
 pub type World = tecs::World<Event>;
@@ -65,6 +66,7 @@ fn main() -> Result<()> {
         .with(renderer.add())
         .with(camera.add())
         .with(Clock::add)
+        .with(InventoryUi::add)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -110,6 +112,7 @@ fn main() -> Result<()> {
             ),
             timer: Timer::new(Duration::from_secs(5)),
         },
+        name: Name(String::from("Copper Ore"))
     });
 
     loop {
