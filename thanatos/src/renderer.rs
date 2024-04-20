@@ -324,16 +324,27 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        let mut ui = components::Box {
-            padding: 16.0,
-            child: components::Text {
-                text: String::from("Hello,World!"),
-                font: renderer.font.clone(),
-                font_size: 24.0,
-            },
-            colour: Vec4::new(1.0, 0.0, 0.0, 1.0),
-            radius: 16.0,
-        };
+        let mut ui = components::HGroup::new(components::HAlign::Center, 16.0)
+            .add(components::Container {
+                padding: 16.0,
+                child: components::Text {
+                    text: String::from("Hello,World!"),
+                    font: renderer.font.clone(),
+                    font_size: 24.0,
+                },
+                colour: Vec4::new(1.0, 0.0, 0.0, 1.0),
+                radius: 16.0,
+            })
+            .add(components::Container {
+                padding: 32.0,
+                child: components::Text {
+                    text: String::from("Testing!"),
+                    font: renderer.font.clone(),
+                    font_size: 32.0,
+                },
+                colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
+                radius: 4.0,
+            });
 
         let ui_size = ui.layout(styx::Constraint {
             min: Vec2::ZERO,
