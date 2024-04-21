@@ -24,6 +24,12 @@ pub enum ColliderKind {
     Sphere(f32),
     Aabb(Vec3),
 }
+#[derive(Clone, Copy, Debug)]
+
+pub enum ColliderPositionKind {
+    Absolute(Vec3),
+    Relative(Vec3),
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Collider {

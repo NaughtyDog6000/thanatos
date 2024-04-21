@@ -9,6 +9,7 @@ mod player;
 mod renderer;
 mod transform;
 mod window;
+mod combat;
 
 use std::time::{Duration, Instant};
 
@@ -38,6 +39,20 @@ struct CopperOre {
 
 #[derive(Archetype)]
 struct Tree {
+    pub render: RenderObject,
+}
+
+#[derive(Archetype)]
+struct TargetDummy {
+    pub transform: Transform,
+    pub render: RenderObject,
+    pub defensive_stats: combat::CombatDefensive,
+    pub collider: Collider
+}
+
+#[derive(Archetype)]
+struct DebugSphere {
+    pub transform: Transform,
     pub render: RenderObject,
 }
 
@@ -134,6 +149,8 @@ async fn main() -> Result<()> {
     let mut world = World::new()
         .register::<Player>()
         .register::<CopperOre>()
+        .register::<TargetDummy>()
+        .register::<DebugSphere>()
         .with_resource(State::Running)
         .with(Connection::add)
         .with_resource(assets)
@@ -151,6 +168,7 @@ async fn main() -> Result<()> {
         })
         .with_ticker(Player::tick)
         .with_ticker(gather::tick)
+        .with_ticker(combat::tick)
         .with(net::add(cube, white));
 
     let mut transform = Transform::IDENTITY;
@@ -162,6 +180,15 @@ async fn main() -> Result<()> {
             material: white,
         },
         transform,
+        offensive_stats: combat::CombatOffensive { 
+            fire: combat::AttackType { damage: 0, penetration: 0 }, 
+            earth: combat::AttackType { damage: 0, penetration: 0 },
+            lightning: combat::AttackType { damage: 0, penetration: 0 },
+            air: combat::AttackType { damage: 0, penetration: 0 },
+            nature: combat::AttackType { damage: 0, penetration: 0 },
+            true_damage: 100,
+        },
+        targeted_entity: player::TargetedEntity::None,
     });
     world.spawn(CopperOre {
         render: RenderObject {
@@ -185,6 +212,27 @@ async fn main() -> Result<()> {
         },
     });
 
+    world.spawn(TargetDummy { 
+        transform: Transform::new(Vec3 { x: 5., y: 0., z: 0. }, glam::Quat::default(), Vec3 { x: 1., y: 1., z: 1.}), 
+        render: RenderObject { 
+            mesh: cube, 
+            material: orange
+        }, 
+        defensive_stats: combat::CombatDefensive { 
+            health: 200, 
+            fire_resistance: 0, 
+            earth_resistance: 0, 
+            lightning_resistance: 0, 
+            air_resistance: 0, 
+            nature_resistance: 0 
+        },
+        collider: Collider {
+            // kind: ColliderKind::Aabb(Vec3 { x: 1., y: 1., z: 1. }),
+            kind: ColliderKind::Sphere(10.),
+            position: Vec3::ZERO,
+        },
+    });  
+
     loop {
         if let State::Stopped = *world.get::<State>().unwrap() {
             break;
@@ -197,5 +245,5 @@ async fn main() -> Result<()> {
         world.remove::<assets::Manager>().unwrap();
     }
 
-    Ok(())
+    Ok(())      
 }
