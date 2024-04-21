@@ -31,10 +31,16 @@ impl Mouse {
 
 #[derive(Clone, Default)]
 pub struct Keyboard {
+    previous: HashSet<Key>,
     down: HashSet<Key>,
 }
 
 impl Keyboard {
+    pub fn pressed<T: IntoKey>(&self, key: T) -> bool {
+        let key = key.into_key();
+        self.down.contains(&key) && !self.previous.contains(&key)
+    }
+
     pub fn is_down<T: IntoKey>(&self, key: T) -> bool {
         self.down.contains(&key.into_key())
     }
@@ -79,6 +85,7 @@ impl Window {
         {
             let mut window = world.get_mut::<Window>().unwrap();
             let mut keyboard = world.get_mut::<Keyboard>().unwrap();
+            keyboard.previous = keyboard.down.clone();
             let mut mouse = world.get_mut::<Mouse>().unwrap();
 
             window

@@ -1,6 +1,7 @@
 mod assets;
 mod camera;
 mod collider;
+mod equipment;
 mod craft;
 mod event;
 mod gather;
@@ -69,6 +70,7 @@ fn main() -> Result<()> {
         .with(Clock::add)
         .with(InventoryUi::add)
         .with(craft::add)
+        .with(equipment::add)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -112,7 +114,7 @@ fn main() -> Result<()> {
                     quantity: 2,
                 }],
             ),
-            timer: Timer::new(Duration::from_secs(5)),
+            timer: Timer::new(Duration::from_secs(1)),
         },
         name: Name(String::from("Copper Ore")),
     });

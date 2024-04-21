@@ -54,8 +54,8 @@ impl CraftUi {
 impl SystemMut<Event> for CraftUi {
     fn tick(&mut self, world: &World) {
         let keyboard = world.get::<Keyboard>().unwrap();
-        if keyboard.is_down("c") {
-            self.open = true;
+        if keyboard.pressed("c") {
+            self.open = !self.open;
         }
 
         if !self.open {
@@ -160,8 +160,14 @@ impl SystemMut<Event> for CraftUi {
 
         if let Some(recipe) = &self.recipe {
             if recipe.craftable(&inventory) && ui.signals.get(self.craft) {
-            recipe.inputs.iter().for_each(|stack| inventory.remove(*stack).unwrap());
-            recipe.outputs.iter().for_each(|stack| inventory.add(*stack));
+                recipe
+                    .inputs
+                    .iter()
+                    .for_each(|stack| inventory.remove(*stack).unwrap());
+                recipe
+                    .outputs
+                    .iter()
+                    .for_each(|stack| inventory.add(*stack));
             }
         }
 
@@ -172,16 +178,28 @@ impl SystemMut<Event> for CraftUi {
 pub fn add(world: World) -> World {
     let ui = CraftUi::new(
         &world,
-        &[Recipe {
-            inputs: vec![ItemStack {
-                item: Item::CopperOre,
-                quantity: 2,
-            }],
-            outputs: vec![ItemStack {
-                item: Item::CopperIngot,
-                quantity: 1,
-            }],
-        }],
+        &[
+            Recipe {
+                inputs: vec![ItemStack {
+                    item: Item::CopperOre,
+                    quantity: 2,
+                }],
+                outputs: vec![ItemStack {
+                    item: Item::CopperIngot,
+                    quantity: 1,
+                }],
+            },
+            Recipe {
+                inputs: vec![ItemStack {
+                    item: Item::CopperIngot,
+                    quantity: 3,
+                }],
+                outputs: vec![ItemStack {
+                    item: Item::CopperSword,
+                    quantity: 1,
+                }],
+            },
+        ],
     );
     world.with_system_mut(ui)
 }

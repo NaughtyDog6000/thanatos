@@ -2,7 +2,7 @@ use std::{cell::Cell, collections::HashMap, fmt::Display};
 
 use glam::Vec4;
 use styx::components::{Container, HAlign, HGroup, Text};
-use tecs::System;
+use tecs::{System, SystemMut};
 
 use crate::{
     event::Event,
@@ -17,6 +17,15 @@ pub enum Item {
     CopperOre,
     CopperIngot,
     CopperSword,
+}
+
+impl Item {
+    pub fn equipable(&self) -> bool {
+        match self {
+            Self::CopperSword => true,
+            _ => false,
+        }
+    }
 }
 
 impl Display for Item {
@@ -69,29 +78,27 @@ impl Inventory {
 }
 
 pub struct InventoryUi {
-    open: Cell<bool>,
+    open: bool,
 }
 
 impl InventoryUi {
     pub fn new() -> Self {
-        Self {
-            open: Cell::new(false),
-        }
+        Self { open: false }
     }
 
     pub fn add(world: World) -> World {
-        world.with_system(Self::new())
+        world.with_system_mut(Self::new())
     }
 }
 
-impl System<Event> for InventoryUi {
-    fn tick(&self, world: &World) {
+impl SystemMut<Event> for InventoryUi {
+    fn tick(&mut self, world: &World) {
         let keyboard = world.get::<Keyboard>().unwrap();
-        if keyboard.is_down("i") {
-            self.open.set(true);
+        if keyboard.pressed("i") {
+            self.open = !self.open;
         }
 
-        if !self.open.get() {
+        if !self.open {
             return;
         }
         let mut ui = world.get_mut::<Ui>().unwrap();
