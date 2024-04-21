@@ -3,7 +3,12 @@ use std::{any::Any, rc::Rc};
 use ash::{
     prelude::VkResult,
     vk::{
-        self, AccessFlags, BufferCopy, BufferImageCopy, ClearValue, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandPoolCreateInfo, DependencyFlags, Extent2D, Extent3D, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, IndexType, Offset2D, Offset3D, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect2D, RenderPassBeginInfo, SubpassContents, Viewport
+        self, AccessFlags, BufferCopy, BufferImageCopy, ClearValue, CommandBufferAllocateInfo,
+        CommandBufferBeginInfo, CommandBufferLevel, CommandPoolCreateInfo, DependencyFlags,
+        Extent2D, Extent3D, ImageAspectFlags, ImageLayout, ImageMemoryBarrier,
+        ImageSubresourceLayers, ImageSubresourceRange, IndexType, Offset2D, Offset3D,
+        PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect2D, RenderPassBeginInfo,
+        SubpassContents, Viewport,
     },
 };
 
@@ -32,7 +37,6 @@ pub struct TransitionLayout {
     pub before: (AccessFlags, PipelineStageFlags),
     pub after: (AccessFlags, PipelineStageFlags),
 }
-
 
 pub struct Buffer {
     device: Rc<Device>,
@@ -168,6 +172,26 @@ impl<'a> Recorder<'a> {
                 first_instance,
             )
         }
+        self
+    }
+
+    pub fn draw_indexed_indirect<T: buffer::Buffer + 'static>(
+        mut self,
+        buffer: &Rc<T>,
+        offset: u64,
+        draw_count: u32,
+        stride: u32,
+    ) -> Self {
+        unsafe {
+            self.buffer.device.cmd_draw_indexed_indirect(
+                self.buffer.handle,
+                buffer.buffer(),
+                offset,
+                draw_count,
+                stride,
+            )
+        }
+        self.buffer.resources.push(buffer.clone());
         self
     }
 

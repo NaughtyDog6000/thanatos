@@ -21,10 +21,7 @@ pub use ash::vk::{
 };
 use ash::{
     vk::{
-        self, ApplicationInfo, ColorSpaceKHR, CompositeAlphaFlagsKHR, DeviceCreateInfo,
-        DeviceQueueCreateInfo, Image, InstanceCreateInfo, PhysicalDeviceFeatures,
-        PhysicalDeviceProperties, PresentModeKHR, QueueFamilyProperties, QueueFlags, SharingMode,
-        SurfaceCapabilitiesKHR, SurfaceFormatKHR, SwapchainCreateInfoKHR, SwapchainKHR,
+        self, ApplicationInfo, ColorSpaceKHR, CompositeAlphaFlagsKHR, DeviceCreateInfo, DeviceQueueCreateInfo, Image, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceProperties, PhysicalDeviceVulkan11Features, PresentModeKHR, QueueFamilyProperties, QueueFlags, SharingMode, SurfaceCapabilitiesKHR, SurfaceFormatKHR, SwapchainCreateInfoKHR, SwapchainKHR
     },
     Entry,
 };
@@ -421,9 +418,13 @@ impl Device {
             .map(|name| name.as_ptr() as *const c_char)
             .collect::<Vec<_>>();
 
+        let features = PhysicalDeviceFeatures::builder().multi_draw_indirect(true);
+        let mut features11 = PhysicalDeviceVulkan11Features::builder().shader_draw_parameters(true);
+
         let create_info = DeviceCreateInfo::builder()
             .enabled_extension_names(&extensions)
-            .queue_create_infos(&queue_create_infos);
+            .queue_create_infos(&queue_create_infos)
+            .enabled_features(&features).push_next(&mut features11);
 
         let inner = unsafe { instance.create_device(physical.handle, &create_info, None)? };
 

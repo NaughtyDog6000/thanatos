@@ -132,7 +132,12 @@ impl Ui {
                 Anchor::BottomRight => window_size - size,
             };
 
-            element.paint(styx::Area { origin, size }, &mut scene, &self.events, &mut self.signals);
+            element.paint(
+                styx::Area { origin, size },
+                &mut scene,
+                &self.events,
+                &mut self.signals,
+            );
         });
 
         self.events.clear();
@@ -227,7 +232,7 @@ impl Renderer {
 
         let camera_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
         let object_layout =
-            descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER; 2], 1000)?;
+            descriptor::Layout::new(&ctx, &[DescriptorType::STORAGE_BUFFER; 2], 1000)?;
 
         let pipeline = pipeline::Graphics::builder()
             .vertex(&vertex)
@@ -432,37 +437,77 @@ impl Renderer {
 
         let assets = world.get::<assets::Manager>().unwrap();
         let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
-        let object_sets = entities
+
+        let transforms = entities
             .iter()
-            .zip(render_objects.iter())
-            .map(|(id, render_object)| {
-                let transform = world
+            .map(|id| {
+                world
                     .get_component::<Transform>(*id)
                     .map(|x| *x)
-                    .unwrap_or_default();
-                let material = assets.get_material(render_object.material).unwrap();
-                let transform_buffer = Static::new(
-                    &renderer.ctx,
-                    bytemuck::cast_slice::<f32, u8>(&transform.matrix().to_cols_array()),
-                    BufferUsageFlags::UNIFORM_BUFFER,
-                )
-                .unwrap();
-                let material_buffer = Static::new(
-                    &renderer.ctx,
-                    bytemuck::cast_slice::<Material, u8>(&[*material]),
-                    BufferUsageFlags::UNIFORM_BUFFER,
-                )
-                .unwrap();
-                let set = renderer
-                    .object_layout
-                    .alloc()
-                    .unwrap()
-                    .write_buffer(0, &transform_buffer)
-                    .write_buffer(1, &material_buffer)
-                    .finish();
-                (transform_buffer, material_buffer, set)
+                    .unwrap_or_default()
             })
-            .collect::<Vec<_>>();
+            .flat_map(|transform| transform.matrix().to_cols_array())
+            .collect::<Vec<f32>>();
+        let transform_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<f32, u8>(&transforms),
+            BufferUsageFlags::STORAGE_BUFFER,
+        )
+        .unwrap();
+
+        let materials = render_objects
+            .iter()
+            .map(|object| *assets.get_material(object.material).unwrap())
+            .collect::<Vec<Material>>();
+        let material_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<Material, u8>(&materials),
+            BufferUsageFlags::STORAGE_BUFFER,
+        )
+        .unwrap();
+
+        let set = renderer
+            .object_layout
+            .alloc()
+            .unwrap()
+            .write_buffer(0, &transform_buffer)
+            .write_buffer(1, &material_buffer)
+            .finish();
+
+        let (vertices, indices) = render_objects.iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut vertices, mut indices), object| {
+                let mesh = assets.get_mesh(object.mesh).unwrap();
+                vertices.extend_from_slice(&mesh.vertices);
+                indices.extend_from_slice(&mesh.indices);
+                (vertices, indices)
+            },
+        );
+
+        let mut index_offset = 0;
+        let mut vertex_offset = 0;
+
+        let draws = render_objects.iter().flat_map(|object| {
+            let mesh = assets.get_mesh(object.mesh).unwrap();
+            let draw = [mesh.indices.len() as u32, 1, index_offset, vertex_offset, 0];
+            index_offset += mesh.indices.len() as u32;
+            vertex_offset += mesh.vertices.len() as u32;
+            draw
+        }).collect::<Vec<u32>>();
+        let draw_buffer = Static::new(&renderer.ctx, bytemuck::cast_slice::<u32, u8>(&draws), BufferUsageFlags::INDIRECT_BUFFER).unwrap();
+
+        let vertex_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<Vertex, u8>(&vertices),
+            BufferUsageFlags::VERTEX_BUFFER,
+        )
+        .unwrap();
+        let index_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<u32, u8>(&indices),
+            BufferUsageFlags::INDEX_BUFFER,
+        )
+        .unwrap();
 
         let scene = world.get_mut::<Ui>().unwrap().paint(&world);
         let frame = if !scene.is_empty() {
@@ -495,18 +540,10 @@ impl Renderer {
             .bind_graphics_pipeline(&renderer.pipeline)
             .set_viewport(size.width, size.height)
             .set_scissor(size.width, size.height)
-            .bind_descriptor_set(&camera_set, 0);
-
-        let cmd = render_objects.iter().zip(object_sets.iter()).fold(
-            cmd,
-            |cmd, (object, (_, _, set))| {
-                let mesh = assets.get_mesh(object.mesh).unwrap();
-                cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
-                    .bind_index_buffer(&mesh.index_buffer)
-                    .bind_descriptor_set(set, 1)
-                    .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
-            },
-        );
+            .bind_descriptor_set(&camera_set, 0)
+            .bind_descriptor_set(&set, 1)
+            .bind_vertex_buffer(&vertex_buffer, 0)
+            .bind_index_buffer(&index_buffer).draw_indexed_indirect(&draw_buffer, 0, draws.len() as u32 / 5, 20);
 
         let cmd = match frame {
             Some(frame) => renderer.ui.draw(frame, cmd),

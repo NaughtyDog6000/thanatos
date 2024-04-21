@@ -50,8 +50,8 @@ fn main() -> Result<()> {
     let camera = Camera::new(&window);
 
     let mut assets = assets::Manager::new();
-    let cube = assets.add_mesh(Mesh::load("assets/meshes/cube.glb", &renderer)?);
-    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb", &renderer)?);
+    let cube = assets.add_mesh(Mesh::load("assets/meshes/cube.glb")?);
+    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb")?);
     let white = assets.add_material(Material { colour: Vec4::ONE });
     let orange = assets.add_material(Material {
         colour: Vec4::new(1.0, 0.5, 0.0, 1.0),

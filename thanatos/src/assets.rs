@@ -1,20 +1,19 @@
-use std::{path::Path, rc::Rc};
+use std::path::Path;
 
 use anyhow::Result;
 use glam::{Vec3, Vec4};
 use gltf::Glb;
-use hephaestus::{buffer::Static, BufferUsageFlags};
 
 use crate::renderer::{Renderer, Vertex};
 
 pub struct Mesh {
-    pub vertex_buffer: Rc<Static>,
-    pub index_buffer: Rc<Static>,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
     pub num_indices: u32,
 }
 
 impl Mesh {
-    pub fn load<T: AsRef<Path>>(path: T, renderer: &Renderer) -> Result<Self> {
+    pub fn load<T: AsRef<Path>>(path: T) -> Result<Self> {
         let model = Glb::load(&std::fs::read(path).unwrap()).unwrap();
 
         let positions: Vec<Vec3> = bytemuck::cast_slice::<u8, f32>(
@@ -45,21 +44,10 @@ impl Mesh {
             .get_indices_data(&model)
             .unwrap();
 
-        let vertex_buffer = Static::new(
-            &renderer.ctx,
-            bytemuck::cast_slice::<Vertex, u8>(&vertices),
-            BufferUsageFlags::VERTEX_BUFFER,
-        )?;
-        let index_buffer = Static::new(
-            &renderer.ctx,
-            bytemuck::cast_slice::<u32, u8>(&indices),
-            BufferUsageFlags::INDEX_BUFFER,
-        )?;
-
         Ok(Mesh {
-            vertex_buffer,
-            index_buffer,
+            vertices,
             num_indices: indices.len() as u32,
+            indices,
         })
     }
 }
