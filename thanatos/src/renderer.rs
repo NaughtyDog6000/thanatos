@@ -13,15 +13,15 @@ use glam::{Vec2, Vec3, Vec4};
 use hephaestus::{
     buffer::Static,
     descriptor,
-    image::{Image, ImageView},
+    image::{Image, ImageInfo, ImageView},
     pipeline::{
-        self, clear_colour, clear_depth, Framebuffer, ImageLayout, PipelineBindPoint, RenderPass,
-        ShaderModule, Subpass, Viewport,
+        self, clear_colour, clear_depth, AttachmentInfo, Framebuffer, ImageLayout,
+        PipelineBindPoint, RenderPass, ShaderModule, Subpass, Viewport,
     },
     task::{Fence, Semaphore, SubmitInfo, Task},
     vertex::{self, AttributeType},
-    BufferUsageFlags, Context, DescriptorType, Extent2D, Format, ImageAspectFlags, ImageUsageFlags,
-    PipelineStageFlags, VkResult,
+    AttachmentLoadOp, AttachmentStoreOp, BufferUsageFlags, Context, DescriptorType, Extent2D,
+    Format, ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, SampleCountFlags, VkResult,
 };
 use log::info;
 use styx::{components, Element, Font, FontSettings};
@@ -131,8 +131,8 @@ pub struct Renderer {
     tasks: VecDeque<Frame>,
     camera_layout: Rc<descriptor::Layout>,
     object_layout: Rc<descriptor::Layout>,
-    depth_images: Vec<Rc<Image>>,
-    depth_views: Vec<Rc<ImageView>>,
+    images: Vec<(Rc<Image>, Rc<Image>)>,
+    views: Vec<(Rc<ImageView>, Rc<ImageView>)>,
     pub ctx: Context,
 }
 
@@ -153,18 +153,43 @@ impl Renderer {
             &std::fs::read("assets/shaders/shader.frag.spv").unwrap(),
         )?;
 
+        let samples = ctx.device.physical.get_samples();
+
         let render_pass = {
             let mut builder = RenderPass::builder();
             let colour = builder.attachment(
                 ctx.swapchain.as_ref().unwrap().format,
-                ImageLayout::UNDEFINED,
-                ImageLayout::PRESENT_SRC_KHR,
+                AttachmentInfo {
+                    initial_layout: ImageLayout::UNDEFINED,
+                    final_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    load_op: AttachmentLoadOp::CLEAR,
+                    store_op: AttachmentStoreOp::DONT_CARE,
+                    samples,
+                },
             );
+
             let depth = builder.attachment(
                 Format::D32_SFLOAT,
-                ImageLayout::UNDEFINED,
-                ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                AttachmentInfo {
+                    initial_layout: ImageLayout::UNDEFINED,
+                    final_layout: ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    load_op: AttachmentLoadOp::CLEAR,
+                    store_op: AttachmentStoreOp::DONT_CARE,
+                    samples,
+                },
             );
+
+            let resolve = builder.attachment(
+                ctx.swapchain.as_ref().unwrap().format,
+                AttachmentInfo {
+                    initial_layout: ImageLayout::UNDEFINED,
+                    final_layout: ImageLayout::PRESENT_SRC_KHR,
+                    load_op: AttachmentLoadOp::DONT_CARE,
+                    store_op: AttachmentStoreOp::STORE,
+                    samples: SampleCountFlags::TYPE_1,
+                },
+            );
+
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
                     .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
@@ -172,7 +197,8 @@ impl Renderer {
             );
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
-                    .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
+                    .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .resolve(resolve, ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
             );
             builder.build(&ctx.device)?
         };
@@ -190,11 +216,12 @@ impl Renderer {
             .viewport(Viewport::Dynamic)
             .layouts(vec![&camera_layout, &object_layout])
             .depth()
+            .multisampled(samples)
             .build(&ctx.device)?;
 
         let ui = styx::Renderer::new(&ctx, &render_pass, 1)?;
 
-        let (depth_images, depth_views) = Self::create_depth_images(&ctx)?;
+        let (images, views) = Self::create_images(&ctx)?;
 
         let framebuffers = ctx
             .swapchain
@@ -202,8 +229,10 @@ impl Renderer {
             .unwrap()
             .views
             .iter()
-            .zip(&depth_views)
-            .map(|(colour, depth)| render_pass.get_framebuffer(&ctx.device, &[colour, depth]))
+            .zip(&views)
+            .map(|(resolve, (colour, depth))| {
+                render_pass.get_framebuffer(&ctx.device, &[colour, depth, resolve])
+            })
             .collect::<VkResult<Vec<Framebuffer>>>()?;
 
         let semaphores = (0..Self::FRAMES_IN_FLIGHT)
@@ -221,8 +250,8 @@ impl Renderer {
             tasks: VecDeque::new(),
             camera_layout,
             object_layout,
-            depth_images,
-            depth_views,
+            images,
+            views,
         })
     }
 
@@ -235,37 +264,67 @@ impl Renderer {
         }
     }
 
-    fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Rc<Image>>, Vec<Rc<ImageView>>)> {
-        let depth_images = ctx
+    fn create_images(
+        ctx: &Context,
+    ) -> VkResult<(
+        Vec<(Rc<Image>, Rc<Image>)>,
+        Vec<(Rc<ImageView>, Rc<ImageView>)>,
+    )> {
+        let swapchain = ctx.swapchain.as_ref().unwrap();
+        let samples = ctx.device.physical.get_samples();
+        let images = ctx
             .swapchain
             .as_ref()
             .unwrap()
             .views
             .iter()
             .map(|_| {
-                Image::new(
-                    ctx,
-                    Format::D32_SFLOAT,
-                    ctx.swapchain.as_ref().unwrap().extent,
-                    ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-                )
+                Ok((
+                    Image::new(
+                        ctx,
+                        ImageInfo {
+                            format: swapchain.format,
+                            extent: swapchain.extent,
+                            usage: ImageUsageFlags::COLOR_ATTACHMENT,
+                            samples,
+                        },
+                    )?,
+                    Image::new(
+                        ctx,
+                        ImageInfo {
+                            format: Format::D32_SFLOAT,
+                            extent: swapchain.extent,
+                            usage: ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+                            samples,
+                        },
+                    )?,
+                ))
             })
             .collect::<VkResult<Vec<_>>>()?;
 
-        let depth_views = depth_images
+        let views = images
             .iter()
-            .map(|image| {
-                ImageView::new(
-                    &ctx.device,
-                    &image,
-                    Format::D32_SFLOAT,
-                    ImageAspectFlags::DEPTH,
-                    ctx.swapchain.as_ref().unwrap().extent,
-                )
+            .map(|(colour, depth)| {
+                Ok((
+                    ImageView::new(
+                        &ctx.device,
+                        &colour,
+                        swapchain.format,
+                        ImageAspectFlags::COLOR,
+                        swapchain.extent,
+                    )?,
+                    ImageView::new(
+                        &ctx.device,
+                        &depth,
+                        Format::D32_SFLOAT,
+                        ImageAspectFlags::DEPTH,
+                        ctx.swapchain.as_ref().unwrap().extent,
+                    )?,
+                ))
             })
             .collect::<VkResult<Vec<_>>>()?;
 
-        Ok((depth_images, depth_views))
+        Ok((images, views))
     }
 
     pub fn recreate_swapchain(&mut self, size: (u32, u32)) -> VkResult<()> {
@@ -277,12 +336,12 @@ impl Renderer {
         self.ctx.recreate_swapchain().unwrap();
 
         self.framebuffers.clear();
-        self.depth_views.clear();
-        self.depth_images.clear();
+        self.views.clear();
+        self.images.clear();
 
-        let (depth_images, depth_views) = Self::create_depth_images(&self.ctx)?;
-        self.depth_images = depth_images;
-        self.depth_views = depth_views;
+        let (images, views) = Self::create_images(&self.ctx)?;
+        self.images = images;
+        self.views = views;
 
         self.framebuffers = self
             .ctx
@@ -291,10 +350,10 @@ impl Renderer {
             .unwrap()
             .views
             .iter()
-            .zip(&self.depth_views)
-            .map(|(colour, depth)| {
+            .zip(&self.views)
+            .map(|(resolve, (colour, depth))| {
                 self.render_pass
-                    .get_framebuffer(&self.ctx.device, &[colour, depth])
+                    .get_framebuffer(&self.ctx.device, &[colour, depth, resolve])
             })
             .collect::<VkResult<Vec<Framebuffer>>>()?;
 

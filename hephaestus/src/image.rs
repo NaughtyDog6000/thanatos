@@ -19,26 +19,31 @@ pub struct Image {
     pub memory: DeviceMemory,
 }
 
+pub struct ImageInfo {
+    pub format: Format,
+    pub extent: Extent2D,
+    pub usage: ImageUsageFlags,
+    pub samples: SampleCountFlags
+}
+
 impl Image {
     pub fn new(
         ctx: &Context,
-        format: Format,
-        extent: Extent2D,
-        usage: ImageUsageFlags,
+        info: ImageInfo
     ) -> VkResult<Rc<Self>> {
         let create_info = ImageCreateInfo::builder()
             .image_type(ImageType::TYPE_2D)
-            .format(format)
+            .format(info.format)
             .extent(Extent3D {
-                width: extent.width,
-                height: extent.height,
+                width: info.extent.width,
+                height: info.extent.height,
                 depth: 1,
             })
             .mip_levels(1)
             .array_layers(1)
-            .samples(SampleCountFlags::TYPE_1)
+            .samples(info.samples)
             .tiling(ImageTiling::OPTIMAL)
-            .usage(usage)
+            .usage(info.usage)
             .sharing_mode(SharingMode::EXCLUSIVE);
         let handle = unsafe { ctx.device.create_image(&create_info, None)? };
 

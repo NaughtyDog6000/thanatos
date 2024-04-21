@@ -15,9 +15,9 @@ use std::{
 
 pub use ash::prelude::VkResult;
 pub use ash::vk::{
-    AccessFlags, BufferUsageFlags, ClearColorValue, ClearValue, DescriptorType, Extent2D, Extent3D,
-    Format, ImageAspectFlags, ImageUsageFlags, MemoryPropertyFlags, Offset2D, Offset3D,
-    PipelineStageFlags,
+    AccessFlags, AttachmentLoadOp, AttachmentStoreOp, BufferUsageFlags, ClearColorValue,
+    ClearValue, DescriptorType, Extent2D, Extent3D, Format, ImageAspectFlags, ImageUsageFlags,
+    MemoryPropertyFlags, Offset2D, Offset3D, PipelineStageFlags, SampleCountFlags,
 };
 use ash::{
     vk::{
@@ -63,6 +63,14 @@ pub struct PhysicalDevice {
     pub properties: PhysicalDeviceProperties,
     pub features: PhysicalDeviceFeatures,
     pub queue_families: Vec<QueueFamilyProperties>,
+}
+
+impl PhysicalDevice {
+    pub fn get_samples(&self) -> SampleCountFlags {
+        let samples = self.properties.limits.framebuffer_color_sample_counts
+            & self.properties.limits.framebuffer_depth_sample_counts;
+        SampleCountFlags::from_raw(1 << (31 - samples.as_raw().leading_zeros()))
+    }
 }
 
 pub struct Surface {

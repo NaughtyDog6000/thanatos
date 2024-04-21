@@ -3,7 +3,19 @@ use std::rc::Rc;
 use ash::{
     prelude::VkResult,
     vk::{
-        self, AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference, AttachmentStoreOp, BlendFactor, BlendOp, ClearColorValue, ClearDepthStencilValue, ClearValue, ColorComponentFlags, CompareOp, CullModeFlags, DependencyFlags, DynamicState, Extent2D, Format, FramebufferCreateInfo, FrontFace, GraphicsPipelineCreateInfo, Offset2D, Pipeline, PipelineCache, PipelineColorBlendAttachmentState, PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo, PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout, PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo, PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode, PrimitiveTopology, Rect2D, RenderPassCreateInfo, Result, SampleCountFlags, ShaderModuleCreateInfo, ShaderStageFlags, SubpassDependency, SubpassDescription, VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate
+        self, AccessFlags, AttachmentDescription, AttachmentLoadOp, AttachmentReference,
+        AttachmentStoreOp, BlendFactor, BlendOp, ClearColorValue, ClearDepthStencilValue,
+        ClearValue, ColorComponentFlags, CompareOp, CullModeFlags, DependencyFlags, DynamicState,
+        Extent2D, Format, FramebufferCreateInfo, FrontFace, GraphicsPipelineCreateInfo, Offset2D,
+        Pipeline, PipelineCache, PipelineColorBlendAttachmentState,
+        PipelineColorBlendStateCreateInfo, PipelineDepthStencilStateCreateInfo,
+        PipelineDynamicStateCreateInfo, PipelineInputAssemblyStateCreateInfo, PipelineLayout,
+        PipelineLayoutCreateInfo, PipelineMultisampleStateCreateInfo,
+        PipelineRasterizationStateCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags,
+        PipelineVertexInputStateCreateInfo, PipelineViewportStateCreateInfo, PolygonMode,
+        PrimitiveTopology, Rect2D, RenderPassCreateInfo, Result, SampleCountFlags,
+        ShaderModuleCreateInfo, ShaderStageFlags, SubpassDependency, SubpassDescription,
+        VertexInputAttributeDescription, VertexInputBindingDescription, VertexInputRate,
     },
 };
 use log::error;
@@ -113,6 +125,7 @@ pub struct Subpass {
     bind_point: PipelineBindPoint,
     colour: Vec<AttachmentReference>,
     depth: Option<AttachmentReference>,
+    resolve: Vec<AttachmentReference>,
 }
 
 impl Subpass {
@@ -121,6 +134,7 @@ impl Subpass {
             bind_point,
             colour: Vec::new(),
             depth: None,
+            resolve: Vec::new(),
         }
     }
 
@@ -139,6 +153,14 @@ impl Subpass {
         });
         self
     }
+
+    pub fn resolve(mut self, attachment: AttachmentId, layout: ImageLayout) -> Self {
+        self.resolve.push(AttachmentReference {
+            attachment: attachment.0,
+            layout,
+        });
+        self
+    }
 }
 
 #[derive(Default)]
@@ -150,22 +172,30 @@ pub struct RenderPassBuilder {
 #[derive(Clone, Copy)]
 pub struct AttachmentId(u32);
 
+pub struct AttachmentInfo {
+    pub initial_layout: ImageLayout,
+    pub final_layout: ImageLayout,
+    pub load_op: AttachmentLoadOp,
+    pub store_op: AttachmentStoreOp,
+    pub samples: SampleCountFlags
+}
+
 impl RenderPassBuilder {
     pub fn attachment(
         &mut self,
         format: Format,
-        initial_layout: ImageLayout,
-        final_layout: ImageLayout,
+        info: AttachmentInfo
     ) -> AttachmentId {
         let attachment = AttachmentDescription::builder()
             .format(format)
             .samples(SampleCountFlags::TYPE_1)
-            .load_op(AttachmentLoadOp::CLEAR)
-            .store_op(AttachmentStoreOp::STORE)
+            .load_op(info.load_op)
+            .store_op(info.store_op)
             .stencil_load_op(AttachmentLoadOp::DONT_CARE)
             .stencil_store_op(AttachmentStoreOp::DONT_CARE)
-            .initial_layout(initial_layout)
-            .final_layout(final_layout)
+            .initial_layout(info.initial_layout)
+            .final_layout(info.final_layout)
+            .samples(info.samples)
             .build();
         self.attachments.push(attachment);
         AttachmentId(self.attachments.len() as u32 - 1)
@@ -182,7 +212,8 @@ impl RenderPassBuilder {
             .map(|subpass| {
                 let desc = SubpassDescription::builder()
                     .pipeline_bind_point(subpass.bind_point)
-                    .color_attachments(&subpass.colour);
+                    .color_attachments(&subpass.colour)
+                    .resolve_attachments(&subpass.resolve);
                 if let Some(depth) = subpass.depth.as_ref() {
                     desc.depth_stencil_attachment(depth).build()
                 } else {
@@ -199,7 +230,8 @@ impl RenderPassBuilder {
                 src_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 dst_stage_mask: PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 src_access_mask: AccessFlags::COLOR_ATTACHMENT_WRITE,
-                dst_access_mask: AccessFlags::COLOR_ATTACHMENT_READ | AccessFlags::COLOR_ATTACHMENT_WRITE,
+                dst_access_mask: AccessFlags::COLOR_ATTACHMENT_READ
+                    | AccessFlags::COLOR_ATTACHMENT_WRITE,
             })
             .collect::<Vec<_>>();
 
@@ -250,6 +282,7 @@ pub struct GraphicsBuilder<'a> {
     vertex_info: Option<vertex::Info>,
     layouts: Vec<&'a descriptor::Layout>,
     depth: bool,
+    multisampled: Option<SampleCountFlags>
 }
 
 impl<'a> GraphicsBuilder<'a> {
@@ -290,6 +323,11 @@ impl<'a> GraphicsBuilder<'a> {
 
     pub fn depth(mut self) -> Self {
         self.depth = true;
+        self
+    }
+
+    pub fn multisampled(mut self, samples: SampleCountFlags) -> Self {
+        self.multisampled = Some(samples);
         self
     }
 
@@ -376,7 +414,7 @@ impl<'a> GraphicsBuilder<'a> {
 
         let multisampling = PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(false)
-            .rasterization_samples(SampleCountFlags::TYPE_1);
+            .rasterization_samples(self.multisampled.unwrap_or(SampleCountFlags::TYPE_1));
 
         let depth_stencil = if self.depth {
             PipelineDepthStencilStateCreateInfo::builder()

@@ -1,6 +1,6 @@
-use glam::{Vec3, Vec4};
+use glam::{Vec2, Vec3, Vec4};
 use rand::Rng;
-use styx::components::{self, Container, Text, VAlign, VGroup};
+use styx::components::{self, Container, Offset, Text, VAlign, VGroup};
 use tecs::{utils::Name, EntityId, Is};
 
 use crate::{
@@ -82,30 +82,33 @@ pub fn tick(world: &World) {
         let name = world.get_component::<Name>(entity);
         ui.add(
             Anchor::Cursor,
-            VGroup::new(VAlign::Center, 4.0)
-                .add(Container {
-                    padding: 4.0,
-                    colour: Vec4::new(0.2, 0.2, 0.2, 1.0),
-                    radius: 4.0,
-                    child: Text {
-                        font: font.clone(),
-                        text: String::from("F"),
-                        font_size: 24.0,
-                    },
-                })
-                .add(Container {
-                    padding: 4.0,
-                    colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
-                    radius: 4.0,
-                    child: Text {
-                        font: font.clone(),
-                        text: match name {
-                            Some(name) => format!("Gather {name}"),
-                            None => String::from("Gather"),
+            Offset {
+                offset: Vec2::new(32.0, 32.0),
+                child: VGroup::new(VAlign::Center, 4.0)
+                    .add(Container {
+                        padding: 4.0,
+                        colour: Vec4::new(0.2, 0.2, 0.2, 1.0),
+                        radius: 4.0,
+                        child: Text {
+                            font: font.clone(),
+                            text: String::from("F"),
+                            font_size: 24.0,
                         },
-                        font_size: 16.0,
-                    },
-                }),
+                    })
+                    .add(Container {
+                        padding: 4.0,
+                        colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
+                        radius: 4.0,
+                        child: Text {
+                            font: font.clone(),
+                            text: match name {
+                                Some(name) => format!("Gather {name}"),
+                                None => String::from("Gather"),
+                            },
+                            font_size: 16.0,
+                        },
+                    }),
+            },
         )
     }
 

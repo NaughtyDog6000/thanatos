@@ -1,9 +1,8 @@
+use fontdue::layout::TextStyle;
+use glam::{Vec2, Vec4};
 use std::rc::Rc;
 
-use fontdue::{layout::TextStyle, Font};
-use glam::{Vec2, Vec4};
-
-use crate::{Area, Constraint, Element, Rectangle, Scene};
+use crate::{Area, Constraint, Element, Font, Rectangle, Scene};
 
 pub struct Container<T: Element> {
     pub padding: f32,
@@ -46,14 +45,15 @@ impl Element for Text {
             &TextStyle::new(&self.text, self.font_size, 0),
         );
         let glyphs = layout.glyphs();
+        let offset = glyphs.first().map(|glyph| Vec2::new(glyph.x, glyph.y)).unwrap_or_default();
         let width = glyphs
             .iter()
-            .map(|glyph| glyph.x + glyph.width as f32)
+            .map(|glyph| (glyph.x - offset.x) + glyph.width as f32)
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or_default();
         let height = glyphs
             .iter()
-            .map(|glyph| glyph.y + glyph.height as f32)
+            .map(|glyph| (glyph.y - offset.y) + glyph.height as f32)
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or_default();
 
@@ -215,5 +215,23 @@ impl Element for HGroup {
                 child.paint(area, scene);
                 y += size.y + self.spacing;
             });
+    }
+}
+
+pub struct Offset<T: Element> {
+    pub offset: Vec2,
+    pub child: T,
+}
+
+impl<T: Element> Element for Offset<T> {
+    fn layout(&mut self, mut constraint: Constraint<Vec2>) -> Vec2 {
+        constraint.max -= self.offset;
+        self.child.layout(constraint) + self.offset
+    }
+
+    fn paint(&mut self, mut area: Area, scene: &mut Scene) {
+        area.origin += self.offset;
+        area.size -= self.offset;
+        self.child.paint(area, scene);
     }
 }

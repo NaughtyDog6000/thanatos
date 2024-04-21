@@ -12,12 +12,12 @@ use hephaestus::{
     buffer::{Dynamic, Static},
     command::{self, BufferToImageRegion, TransitionLayout},
     descriptor,
-    image::{Image, ImageView, Sampler},
+    image::{Image, ImageInfo, ImageView, Sampler},
     pipeline::{Graphics, ImageLayout, RenderPass, ShaderModule, Viewport},
     task::Task,
     vertex::{self, AttributeType},
     AccessFlags, BufferUsageFlags, Context, DescriptorType, Extent2D, Extent3D, Format,
-    ImageAspectFlags, ImageUsageFlags, Offset3D, PipelineStageFlags,
+    ImageAspectFlags, ImageUsageFlags, Offset3D, PipelineStageFlags, SampleCountFlags,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,12 +78,17 @@ pub struct Rectangle {
     colour: Vec4,
 }
 
-#[derive(Clone, Debug)]
 pub struct Text {
     pub origin: Vec2,
     pub text: String,
     pub font_size: f32,
     pub font: Rc<Font>,
+}
+
+impl Text {
+    pub fn get_size(&self) -> Vec2 {
+        Vec2::ZERO
+    }
 }
 
 #[derive(Default)]
@@ -126,10 +131,14 @@ impl Scene {
 
     pub fn render(&self) -> Result<RenderedScene> {
         let (mut vertices, mut indices, mut rectangles) = self.render_rectangles();
-        let (mut text_vertices, mut text_indices, mut text_rectangles, image) =
-            self.render_text()?;
+        let (mut text_vertices, text_indices, mut text_rectangles, image) = self.render_text()?;
+        indices.append(
+            &mut text_indices
+                .into_iter()
+                .map(|index| index + vertices.len() as u32)
+                .collect(),
+        );
         vertices.append(&mut text_vertices);
-        indices.append(&mut text_indices);
         rectangles.append(&mut text_rectangles);
 
         Ok(RenderedScene {
@@ -195,8 +204,12 @@ impl Scene {
             .iter()
             .zip(&text)
             .flat_map(|((_, layout), text)| {
-                layout.iter().map(|c| Area {
-                    origin: Vec2::new(c.x, c.y) + text.origin,
+                let offset = layout
+                    .first()
+                    .map(|glyph| Vec2::new(glyph.x, glyph.y))
+                    .unwrap_or_default();
+                layout.iter().map(move |c| Area {
+                    origin: Vec2::new(c.x, c.y) - offset + text.origin,
                     size: Vec2::new(c.width as f32, c.height as f32),
                 })
             })
@@ -204,7 +217,7 @@ impl Scene {
 
         let (vertices, indices) = Area::vertices(&areas);
 
-        let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, (Rc<Font>, Size)> =
+        let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, (Rc<fontdue::Font>, Size)> =
             HashMap::from_iter(layouts.iter().flat_map(|(font, layout)| {
                 layout.iter().map(|c| {
                     (
@@ -232,7 +245,7 @@ impl Scene {
         let glyph_areas: HashMap<
             &fontdue::layout::GlyphRasterConfig,
             (
-                Rc<Font>,
+                Rc<fontdue::Font>,
                 etagere::euclid::Box2D<i32, etagere::euclid::UnknownUnit>,
             ),
         > = HashMap::from_iter(
@@ -270,9 +283,9 @@ impl Scene {
             })
             .collect::<Vec<Area>>();
 
-        let rectangles = areas
+        let rectangles: Vec<RectangleData> = areas
             .iter()
-            .zip(sample_areas)
+            .zip(sample_areas.clone())
             .map(|(area, sample_area)| RectangleData {
                 area: area.as_vec4(),
                 sample_area: Vec4::new(
@@ -368,6 +381,7 @@ impl Renderer {
             .subpass(subpass as u32)
             .viewport(Viewport::Dynamic)
             .layouts(vec![&layout])
+            .multisampled(ctx.device.physical.get_samples())
             .build(&ctx.device)?;
 
         Ok(Self {
@@ -404,12 +418,15 @@ impl Renderer {
 
         let image = Rc::new(Image::new(
             ctx,
-            Format::R8_UNORM,
-            Extent2D {
-                width: rendered.image.0.width as u32,
-                height: rendered.image.0.height as u32,
+            ImageInfo {
+                format: Format::R8_UNORM,
+                extent: Extent2D {
+                    width: rendered.image.0.width as u32,
+                    height: rendered.image.0.height as u32,
+                },
+                usage: ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
+                samples: SampleCountFlags::TYPE_1,
             },
-            ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED,
         )?);
         let buffer = Dynamic::new(ctx, rendered.image.1.len(), BufferUsageFlags::TRANSFER_SRC)?;
         buffer.write(&rendered.image.1)?;
