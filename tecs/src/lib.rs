@@ -1,8 +1,8 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(vec_into_raw_parts)]
 
-mod vecany;
 pub mod utils;
+mod vecany;
 
 pub use vecany::VecAny;
 
@@ -20,6 +20,10 @@ pub trait System<E> {
     fn tick(&self, _world: &World<E>) {}
 }
 
+pub trait SystemMut<E> {
+    fn tick(&mut self, _world: &World<E>) {}
+}
+
 struct Handler<T>(T);
 struct Ticker<T>(T);
 
@@ -32,6 +36,12 @@ impl<E, T: Fn(&World<E>, &E)> System<E> for Handler<T> {
 impl<E, T: Fn(&World<E>)> System<E> for Ticker<T> {
     fn tick(&self, world: &World<E>) {
         self.0(world)
+    }
+}
+
+impl<E, T: SystemMut<E>> System<E> for RefCell<T> {
+    fn tick(&self, world: &World<E>) {
+        self.borrow_mut().tick(world)
     }
 }
 
@@ -146,9 +156,7 @@ impl Table {
     }
 
     pub fn has_column<T: 'static>(&self) -> bool {
-        self.columns
-            .iter()
-            .any(|(ty, _)| *ty == TypeId::of::<T>())
+        self.columns.iter().any(|(ty, _)| *ty == TypeId::of::<T>())
     }
 
     pub fn column<T: 'static>(&self) -> Option<Ref<'_, [T]>> {
@@ -157,10 +165,9 @@ impl Table {
             .find(|(ty, _)| *ty == TypeId::of::<T>())
             .map(|(_, column)| {
                 Ref::map(column.borrow(), |column| {
-                    column.data.downcast_ref::<T>().unwrap_or_else(|| panic!(
-                        "Failed to downcast {}",
-                        std::any::type_name::<T>()
-                    ))
+                    column.data.downcast_ref::<T>().unwrap_or_else(|| {
+                        panic!("Failed to downcast {}", std::any::type_name::<T>())
+                    })
                 })
             })
     }
@@ -499,6 +506,11 @@ impl<E> World<E> {
 
     pub fn with_system<T: System<E> + 'static>(mut self, system: T) -> Self {
         self.systems.push(Rc::new(system));
+        self
+    }
+
+    pub fn with_system_mut<T: SystemMut<E> + 'static>(mut self, system: T) -> Self {
+        self.systems.push(Rc::new(RefCell::new(system)));
         self
     }
 

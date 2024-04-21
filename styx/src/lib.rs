@@ -20,6 +20,49 @@ use hephaestus::{
     ImageAspectFlags, ImageUsageFlags, Offset3D, PipelineStageFlags, SampleCountFlags,
 };
 
+#[derive(Debug, Clone)]
+pub enum Event {
+    Click(Vec2),
+}
+
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Signal(usize);
+
+#[derive(Default, Clone, Debug)]
+pub struct Signals(Vec<bool>);
+
+impl Signals {
+    pub fn signal(&mut self) -> Signal {
+        self.0.push(false);
+        Signal(self.0.len() - 1)
+    }
+
+    pub fn get(&self, signal: Signal) -> bool {
+        self.0.get(signal.0).copied().unwrap_or_default()
+    }
+
+    pub fn set(&mut self, signal: Signal) {
+        self.0.get_mut(signal.0).map(|x| *x = true);
+    }
+
+    pub fn clear(&mut self) {
+        self.0.iter_mut().for_each(|x| *x = false);
+    }
+}
+
+pub fn clicked(events: &[Event], area: Area) -> bool {
+    events
+        .iter()
+        .filter_map(|event| {
+            if let Event::Click(position) = event {
+                Some(*position)
+            } else {
+                None
+            }
+        })
+        .any(|position| area.contains(position))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Constraint<T> {
     pub min: T,
@@ -69,6 +112,13 @@ impl Area {
 
         (vertices, indices)
     }
+
+    pub fn contains(&self, point: Vec2) -> bool {
+        self.origin.x < point.x
+            && point.x < self.origin.x + self.size.x
+            && self.origin.y < point.y
+            && point.y < self.origin.y + self.size.y
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -83,6 +133,7 @@ pub struct Text {
     pub text: String,
     pub font_size: f32,
     pub font: Rc<Font>,
+    pub colour: Vec4,
 }
 
 impl Text {
@@ -196,7 +247,7 @@ impl Scene {
                     &[text.font.clone()],
                     &TextStyle::new(&text.text, text.font_size, 0),
                 );
-                (text.font.clone(), layout.glyphs().to_owned())
+                (text, layout.glyphs().to_owned())
             })
             .collect::<Vec<_>>();
 
@@ -217,14 +268,11 @@ impl Scene {
 
         let (vertices, indices) = Area::vertices(&areas);
 
-        let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, (Rc<fontdue::Font>, Size)> =
-            HashMap::from_iter(layouts.iter().flat_map(|(font, layout)| {
-                layout.iter().map(|c| {
-                    (
-                        c.key,
-                        (font.clone(), Size::new(c.width as i32, c.height as i32)),
-                    )
-                })
+        let glyphs: HashMap<fontdue::layout::GlyphRasterConfig, (&Text, Size)> =
+            HashMap::from_iter(layouts.iter().flat_map(|(text, layout)| {
+                layout
+                    .iter()
+                    .map(|c| (c.key, (**text, Size::new(c.width as i32, c.height as i32))))
             }));
 
         let mut atlas = etagere::BucketedAtlasAllocator::new(Size::new(1024, 512));
@@ -245,19 +293,19 @@ impl Scene {
         let glyph_areas: HashMap<
             &fontdue::layout::GlyphRasterConfig,
             (
-                Rc<fontdue::Font>,
+                &Text,
                 etagere::euclid::Box2D<i32, etagere::euclid::UnknownUnit>,
             ),
         > = HashMap::from_iter(
             glyphs
                 .iter()
-                .map(|(key, (font, size))| (key, (font.clone(), allocate(*size)))),
+                .map(|(key, (font, size))| (key, (*font, allocate(*size)))),
         );
 
         let image_size = atlas.size();
         let mut image_data = vec![0; image_size.width as usize * image_size.height as usize];
-        for (key, (font, area)) in &glyph_areas {
-            let (metrics, data) = font.rasterize_indexed(key.glyph_index, key.px);
+        for (key, (text, area)) in &glyph_areas {
+            let (metrics, data) = text.font.rasterize_indexed(key.glyph_index, key.px);
             for y in 0..metrics.height {
                 let image_index =
                     (area.min.y as usize + y) * image_size.width as usize + area.min.x as usize;
@@ -283,10 +331,15 @@ impl Scene {
             })
             .collect::<Vec<Area>>();
 
+        let colours = layouts
+            .iter()
+            .flat_map(|(text, layout)| vec![text.colour; layout.len()]);
+
         let rectangles: Vec<RectangleData> = areas
             .iter()
             .zip(sample_areas.clone())
-            .map(|(area, sample_area)| RectangleData {
+            .zip(colours)
+            .map(|((area, sample_area), colour)| RectangleData {
                 area: area.as_vec4(),
                 sample_area: Vec4::new(
                     sample_area.origin.x,
@@ -294,7 +347,7 @@ impl Scene {
                     area.size.x,
                     area.size.y,
                 ),
-                colour: Vec4::ONE,
+                colour,
                 radius: Vec4::ZERO,
             })
             .collect();
@@ -304,12 +357,6 @@ impl Scene {
 
     pub fn is_empty(&self) -> bool {
         self.layers.iter().all(|layer| layer.is_empty())
-    }
-}
-
-impl Default for Scene {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -335,7 +382,6 @@ struct RectangleData {
 }
 
 pub struct Renderer {
-    font: Font,
     pipeline: Graphics,
     layout: Rc<descriptor::Layout>,
 }
@@ -351,12 +397,6 @@ pub struct Frame {
 
 impl Renderer {
     pub fn new(ctx: &Context, render_pass: &RenderPass, subpass: usize) -> Result<Self> {
-        let font = Font::from_bytes(
-            std::fs::read("assets/fonts/JetBrainsMono-Medium.ttf")?,
-            FontSettings::default(),
-        )
-        .unwrap();
-
         let ui_vertex =
             ShaderModule::new(&ctx.device, &std::fs::read("assets/shaders/ui.vert.spv")?)?;
 
@@ -384,11 +424,7 @@ impl Renderer {
             .multisampled(ctx.device.physical.get_samples())
             .build(&ctx.device)?;
 
-        Ok(Self {
-            font,
-            pipeline,
-            layout,
-        })
+        Ok(Self { pipeline, layout })
     }
 
     pub fn prepare(&self, ctx: &Context, scene: &Scene, viewport: Vec2) -> Result<Frame> {
@@ -527,5 +563,5 @@ impl Renderer {
 
 pub trait Element {
     fn layout(&mut self, constraint: Constraint<Vec2>) -> Vec2;
-    fn paint(&mut self, area: Area, scene: &mut Scene);
+    fn paint(&mut self, area: Area, scene: &mut Scene, events: &[Event], signals: &mut Signals);
 }

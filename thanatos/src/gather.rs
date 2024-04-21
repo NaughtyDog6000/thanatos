@@ -93,6 +93,7 @@ pub fn tick(world: &World) {
                             font: font.clone(),
                             text: String::from("F"),
                             font_size: 24.0,
+                            colour: Vec4::ONE
                         },
                     })
                     .add(Container {
@@ -106,6 +107,7 @@ pub fn tick(world: &World) {
                                 None => String::from("Gather"),
                             },
                             font_size: 16.0,
+                            colour: Vec4::ONE
                         },
                     }),
             },

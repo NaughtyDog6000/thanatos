@@ -1,6 +1,7 @@
 mod assets;
 mod camera;
 mod collider;
+mod craft;
 mod event;
 mod gather;
 mod item;
@@ -34,7 +35,7 @@ struct CopperOre {
     pub render: RenderObject,
     pub transform: Transform,
     pub gatherable: Gatherable,
-    pub name: Name
+    pub name: Name,
 }
 
 pub type World = tecs::World<Event>;
@@ -67,6 +68,7 @@ fn main() -> Result<()> {
         .with(camera.add())
         .with(Clock::add)
         .with(InventoryUi::add)
+        .with(craft::add)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -112,7 +114,7 @@ fn main() -> Result<()> {
             ),
             timer: Timer::new(Duration::from_secs(5)),
         },
-        name: Name(String::from("Copper Ore"))
+        name: Name(String::from("Copper Ore")),
     });
 
     loop {

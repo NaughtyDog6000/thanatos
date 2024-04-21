@@ -222,6 +222,8 @@ impl RenderPassBuilder {
             })
             .collect::<Vec<_>>();
 
+        println!("{subpasses:?}");
+
         let dependencies = (0..subpasses.len() - 1)
             .map(|n| SubpassDependency {
                 dependency_flags: DependencyFlags::empty(),

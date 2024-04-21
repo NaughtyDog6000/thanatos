@@ -4,7 +4,12 @@ use glam::Vec4;
 use styx::components::{Container, HAlign, HGroup, Text};
 use tecs::System;
 
-use crate::{event::Event, renderer::{Anchor, Ui}, window::Keyboard, World};
+use crate::{
+    event::Event,
+    renderer::{Anchor, Ui},
+    window::Keyboard,
+    World,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Item {
@@ -16,12 +21,16 @@ pub enum Item {
 
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Self::Wood => "Wood",
-            Self::CopperOre => "Copper Ore",
-            Self::CopperIngot => "Copper Ingot",
-            Self::CopperSword => "Copper Sword"
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Wood => "Wood",
+                Self::CopperOre => "Copper Ore",
+                Self::CopperIngot => "Copper Ingot",
+                Self::CopperSword => "Copper Sword",
+            }
+        )
     }
 }
 
@@ -44,6 +53,12 @@ impl Inventory {
         }
     }
 
+    pub fn remove(&mut self, stack: ItemStack) -> Option<()> {
+        self.0
+            .get_mut(&stack.item)
+            .map(|quantity| *quantity -= stack.quantity)
+    }
+
     pub fn get(&self, item: Item) -> Option<usize> {
         self.0.get(&item).copied()
     }
@@ -59,7 +74,9 @@ pub struct InventoryUi {
 
 impl InventoryUi {
     pub fn new() -> Self {
-        Self { open: Cell::new(false) }
+        Self {
+            open: Cell::new(false),
+        }
     }
 
     pub fn add(world: World) -> World {
@@ -70,7 +87,9 @@ impl InventoryUi {
 impl System<Event> for InventoryUi {
     fn tick(&self, world: &World) {
         let keyboard = world.get::<Keyboard>().unwrap();
-        if keyboard.is_down("i") { self.open.set(true); }
+        if keyboard.is_down("i") {
+            self.open.set(true);
+        }
 
         if !self.open.get() {
             return;
@@ -85,6 +104,7 @@ impl System<Event> for InventoryUi {
                     text: format!("{item} x {quantity}"),
                     font_size: 24.0,
                     font: ui.font.clone(),
+                    colour: Vec4::ONE,
                 })
             },
         );
@@ -92,7 +112,7 @@ impl System<Event> for InventoryUi {
             padding: 16.0,
             radius: 8.0,
             colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
-            child: stacks
+            child: stacks,
         };
         let padded = Container {
             padding: 16.0,

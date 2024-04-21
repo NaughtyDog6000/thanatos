@@ -3,13 +3,14 @@ use std::{collections::VecDeque, mem::size_of, rc::Rc};
 use crate::{
     assets::{self, Material, MaterialId, MeshId},
     camera::Camera,
+    event::Event,
     transform::Transform,
     window::{Mouse, Window},
     World,
 };
 use anyhow::Result;
 use bytemuck::offset_of;
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Vec2, Vec3};
 use hephaestus::{
     buffer::Static,
     descriptor,
@@ -24,8 +25,9 @@ use hephaestus::{
     Format, ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, SampleCountFlags, VkResult,
 };
 use log::info;
-use styx::{components, Element, Font, FontSettings};
+use styx::{components, Element, Font, FontSettings, Signals};
 use tecs::EntityId;
+use winit::event::MouseButton;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -68,7 +70,9 @@ pub enum Anchor {
 
 pub struct Ui {
     pub font: Rc<Font>,
+    pub signals: Signals,
     elements: Vec<(Anchor, Box<dyn Element>)>,
+    events: Vec<styx::Event>,
 }
 
 impl Ui {
@@ -83,12 +87,27 @@ impl Ui {
 
         Self {
             font,
+            signals: Signals::default(),
+            events: Vec::new(),
             elements: Vec::new(),
         }
     }
 
     pub fn add<T: Element + 'static>(&mut self, anchor: Anchor, element: T) {
         self.elements.push((anchor, Box::new(element)))
+    }
+
+    pub fn event(world: &World, event: &Event) {
+        let event = match event {
+            Event::MousePress(MouseButton::Left) => {
+                let mouse = world.get::<Mouse>().unwrap();
+                styx::Event::Click(mouse.position)
+            }
+            _ => return,
+        };
+
+        let mut ui = world.get_mut::<Ui>().unwrap();
+        ui.events.push(event)
     }
 
     pub fn paint(&mut self, world: &World) -> styx::Scene {
@@ -102,6 +121,7 @@ impl Ui {
             max: window_size,
         };
 
+        self.signals.clear();
         let mut scene = styx::Scene::new();
         self.elements.iter_mut().for_each(|(anchor, element)| {
             let size = element.layout(constraint);
@@ -112,9 +132,10 @@ impl Ui {
                 Anchor::BottomRight => window_size - size,
             };
 
-            element.paint(styx::Area { origin, size }, &mut scene);
+            element.paint(styx::Area { origin, size }, &mut scene, &self.events, &mut self.signals);
         });
 
+        self.events.clear();
         self.elements.clear();
 
         scene
@@ -193,7 +214,8 @@ impl Renderer {
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
                     .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                    .depth(depth, ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+                    .depth(depth, ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                    .resolve(resolve, ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
             );
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
@@ -261,6 +283,7 @@ impl Renderer {
                 .with_resource(self)
                 .with_resource(Ui::new())
                 .with_ticker(Self::draw)
+                .with_handler(Ui::event)
         }
     }
 
