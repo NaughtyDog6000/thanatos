@@ -1,4 +1,5 @@
 use glam::Vec4;
+use nyx::item::{Inventory, Item, ItemStack};
 use styx::{
     components::{Clicked, Container, HGroup, Text},
     Signal,
@@ -7,7 +8,6 @@ use tecs::SystemMut;
 
 use crate::{
     event::Event,
-    item::{Inventory, Item},
     renderer::{Anchor, Ui},
     window::Keyboard,
     World,
@@ -57,7 +57,7 @@ impl SystemMut<Event> for EquipmentUi {
 
         let equipable = inventory
             .items()
-            .map(|(item, _)| item)
+            .map(|ItemStack { item, .. }| item)
             .filter(|item| item.equipable());
         let equipment = equipped.equipment().collect::<Vec<_>>();
 

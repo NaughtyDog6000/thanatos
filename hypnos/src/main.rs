@@ -1,5 +1,5 @@
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
@@ -9,13 +9,18 @@ use std::{
 use anyhow::Result;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use glam::Vec3;
-use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
+use nyx::{
+    data,
+    item::{Inventory, ItemStack},
+    protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
+};
 
 const FORCED_LATENCY: Duration = Duration::from_millis(300);
 
 pub struct Client {
     id: ClientId,
     position: Cell<Vec3>,
+    inventory: RefCell<Inventory>,
 }
 
 fn handle_networking(
@@ -93,6 +98,7 @@ fn add_client(
         Client {
             id,
             position: Cell::new(Vec3::ZERO),
+            inventory: RefCell::new(Inventory::default()),
         },
     );
 
@@ -113,6 +119,9 @@ fn main() -> Result<()> {
     let mut tick = Tick(0);
     let rx = serverbound_rx;
     let tx = clientbound_tx;
+
+    let recipes = data::recipes();
+    let nodes = data::nodes();
 
     loop {
         let start = Instant::now();
@@ -137,6 +146,54 @@ fn main() -> Result<()> {
                         }
                         tx.send((*other_addr, Clientbound::Move(client.id, position, tick)))
                             .unwrap();
+                    })
+                }
+                Serverbound::Gather(index) => {
+                    let Some(node) = nodes.get(index) else {
+                        continue;
+                    };
+                    let mut inventory = client.inventory.borrow_mut();
+                    node.pick().iter().for_each(|stack| {
+                        inventory.add(*stack);
+                        tx.send((
+                            addr,
+                            Clientbound::SetStack(ItemStack {
+                                item: stack.item,
+                                quantity: inventory.get(stack.item).unwrap_or_default(),
+                            }),
+                        ))
+                        .unwrap();
+                    })
+                }
+                Serverbound::Craft(index) => {
+                    let Some(recipe) = recipes.get(index) else {
+                        continue;
+                    };
+                    let mut inventory = client.inventory.borrow_mut();
+                    if !recipe.craftable(&inventory.items().collect::<Vec<_>>()) {
+                        continue;
+                    }
+                    recipe.inputs.iter().for_each(|stack| {
+                        inventory.remove(*stack);
+                        tx.send((
+                            addr,
+                            Clientbound::SetStack(ItemStack {
+                                item: stack.item,
+                                quantity: inventory.get(stack.item).unwrap_or_default(),
+                            }),
+                        ))
+                        .unwrap();
+                    });
+                    recipe.outputs.iter().for_each(|stack| {
+                        inventory.add(*stack);
+                        tx.send((
+                            addr,
+                            Clientbound::SetStack(ItemStack {
+                                item: stack.item,
+                                quantity: inventory.get(stack.item).unwrap_or_default(),
+                            }),
+                        ))
+                        .unwrap();
                     })
                 }
                 _ => (),

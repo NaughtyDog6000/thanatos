@@ -1,11 +1,15 @@
 use glam::{Vec2, Vec3, Vec4};
+use nyx::{
+    item::{Inventory, ItemStack, LootTable},
+    protocol::Serverbound,
+};
 use rand::Rng;
 use styx::components::{self, Container, Offset, Text, VAlign, VGroup};
 use tecs::{utils::Name, EntityId, Is};
 
 use crate::{
     collider::Collider,
-    item::{Inventory, ItemStack},
+    net::Connection,
     player::Player,
     renderer::{Anchor, Renderer, Ui},
     transform::Transform,
@@ -13,37 +17,9 @@ use crate::{
     Timer, World,
 };
 
-#[derive(Default)]
-pub struct LootTable {
-    entries: Vec<(f32, Vec<ItemStack>)>,
-}
-
-impl LootTable {
-    pub fn add(mut self, probability: f32, loot: Vec<ItemStack>) -> Self {
-        self.entries.push((probability, loot));
-        self
-    }
-
-    pub fn pick(&self) -> &[ItemStack] {
-        let mut rng = rand::thread_rng();
-        let mut p: f32 = rng.gen();
-        self.entries
-            .iter()
-            .find_map(|(probability, items)| {
-                p -= probability;
-                if p < 0.0 {
-                    Some(items)
-                } else {
-                    None
-                }
-            })
-            .unwrap()
-    }
-}
-
 pub struct Gatherable {
     pub collider: Collider,
-    pub loot: LootTable,
+    pub loot: usize,
     pub timer: Timer,
 }
 
@@ -52,9 +28,9 @@ impl Gatherable {
         self.collider.within(position)
     }
 
-    pub fn gather(&mut self) -> &[ItemStack] {
+    pub fn gather(&mut self) -> usize {
         self.timer.start();
-        self.loot.pick()
+        self.loot
     }
 }
 
@@ -93,7 +69,7 @@ pub fn tick(world: &World) {
                             font: font.clone(),
                             text: String::from("F"),
                             font_size: 24.0,
-                            colour: Vec4::ONE
+                            colour: Vec4::ONE,
                         },
                     })
                     .add(Container {
@@ -107,7 +83,7 @@ pub fn tick(world: &World) {
                                 None => String::from("Gather"),
                             },
                             font_size: 16.0,
-                            colour: Vec4::ONE
+                            colour: Vec4::ONE,
                         },
                     }),
             },
@@ -115,13 +91,9 @@ pub fn tick(world: &World) {
     }
 
     if keyboard.is_down("f") {
-        let mut inventory = world.get_mut::<Inventory>().unwrap();
         let mut gatherable = world.get_component_mut::<Gatherable>(entity).unwrap();
-        gatherable
-            .gather()
-            .iter()
-            .copied()
-            .for_each(|stack| inventory.add(stack));
-        println!("{inventory:?}");
+        let mut conn = world.get_mut::<Connection>().unwrap();
+        conn.write(Serverbound::Gather(gatherable.gather()))
+            .unwrap();
     }
 }

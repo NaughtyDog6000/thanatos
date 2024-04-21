@@ -1,4 +1,5 @@
 use glam::Vec4;
+use nyx::{data, item::{Inventory, Recipe}, protocol::Serverbound};
 use styx::{
     components::{text, Clicked, Container, HAlign, HGroup, Text, VAlign, VGroup},
     Signal,
@@ -7,30 +8,16 @@ use tecs::{System, SystemMut};
 
 use crate::{
     event::Event,
-    item::{Inventory, Item, ItemStack},
+    net::Connection,
     renderer::{Anchor, Ui},
     window::Keyboard,
     World,
 };
 
-#[derive(Clone, Debug, Default)]
-pub struct Recipe {
-    inputs: Vec<ItemStack>,
-    outputs: Vec<ItemStack>,
-}
-
-impl Recipe {
-    pub fn craftable(&self, inventory: &Inventory) -> bool {
-        self.inputs
-            .iter()
-            .all(|stack| stack.quantity <= inventory.get(stack.item).unwrap_or_default())
-    }
-}
-
 pub struct CraftUi {
     open: bool,
     craft: Signal,
-    recipe: Option<Recipe>,
+    recipe: Option<usize>,
     recipes: Vec<(Signal, Recipe)>,
 }
 
@@ -67,16 +54,16 @@ impl SystemMut<Event> for CraftUi {
 
         let mut view = VGroup::new(VAlign::Top, 32.0);
 
-        let recipes = self.recipes.iter().fold(
+        let recipes = self.recipes.iter().enumerate().fold(
             HGroup::new(HAlign::Left, 16.0),
-            |component, (signal, recipe)| {
+            |component, (i, (signal, recipe))| {
                 let output = recipe.outputs.first().unwrap();
 
                 if ui.signals.get(*signal) {
-                    self.recipe = Some(recipe.clone())
+                    self.recipe = Some(i)
                 }
 
-                let colour = if recipe.craftable(&inventory) {
+                let colour = if recipe.craftable(&inventory.items().collect::<Vec<_>>()) {
                     Vec4::new(0.0, 1.0, 0.0, 1.0)
                 } else {
                     Vec4::new(1.0, 0.0, 0.0, 1.0)
@@ -103,7 +90,9 @@ impl SystemMut<Event> for CraftUi {
 
         view = view.add(recipes);
 
-        if let Some(recipe) = &self.recipe {
+        if let Some(index) = &self.recipe {
+            let recipe = &self.recipes.get(*index).unwrap().1;
+
             let inputs = recipe.inputs.iter().fold(
                 HGroup::new(HAlign::Left, 16.0).add(text("Inputs:", 48.0, ui.font.clone())),
                 |inputs, input| {
@@ -158,16 +147,13 @@ impl SystemMut<Event> for CraftUi {
             view = view.add(recipe);
         }
 
-        if let Some(recipe) = &self.recipe {
-            if recipe.craftable(&inventory) && ui.signals.get(self.craft) {
-                recipe
-                    .inputs
-                    .iter()
-                    .for_each(|stack| inventory.remove(*stack).unwrap());
-                recipe
-                    .outputs
-                    .iter()
-                    .for_each(|stack| inventory.add(*stack));
+        if let Some(index) = &self.recipe {
+            let recipe = &self.recipes.get(*index).unwrap().1;
+            if recipe.craftable(&inventory.items().collect::<Vec<_>>())
+                && ui.signals.get(self.craft)
+            {
+                let mut conn = world.get_mut::<Connection>().unwrap();
+                conn.write(Serverbound::Craft(*index)).unwrap();
             }
         }
 
@@ -176,30 +162,6 @@ impl SystemMut<Event> for CraftUi {
 }
 
 pub fn add(world: World) -> World {
-    let ui = CraftUi::new(
-        &world,
-        &[
-            Recipe {
-                inputs: vec![ItemStack {
-                    item: Item::CopperOre,
-                    quantity: 2,
-                }],
-                outputs: vec![ItemStack {
-                    item: Item::CopperIngot,
-                    quantity: 1,
-                }],
-            },
-            Recipe {
-                inputs: vec![ItemStack {
-                    item: Item::CopperIngot,
-                    quantity: 3,
-                }],
-                outputs: vec![ItemStack {
-                    item: Item::CopperSword,
-                    quantity: 1,
-                }],
-            },
-        ],
-    );
+    let ui = CraftUi::new(&world, &data::recipes());
     world.with_system_mut(ui)
 }

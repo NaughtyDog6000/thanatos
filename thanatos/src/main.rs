@@ -5,7 +5,7 @@ mod equipment;
 mod craft;
 mod event;
 mod gather;
-mod item;
+mod inventory;
 mod net;
 mod player;
 mod renderer;
@@ -17,10 +17,10 @@ use anyhow::Result;
 use assets::{Material, Mesh};
 use collider::{Collider, ColliderKind};
 use event::Event;
-use gather::{Gatherable, LootTable};
+use gather::Gatherable;
 use glam::{Vec3, Vec4};
-use item::{Inventory, InventoryUi, Item, ItemStack};
 use net::Connection;
+use nyx::{data, item::{Item, ItemStack}};
 use player::Player;
 use renderer::{RenderObject, Renderer};
 use std::time::Duration;
@@ -63,12 +63,11 @@ fn main() -> Result<()> {
         .with_resource(State::Running)
         .with(Connection::add)
         .with_resource(assets)
-        .with_resource(Inventory::default())
         .with(window.add())
         .with(renderer.add())
         .with(camera.add())
         .with(Clock::add)
-        .with(InventoryUi::add)
+        .with(inventory::add)
         .with(craft::add)
         .with(equipment::add)
         .with_handler(|world, event| match event {
@@ -107,13 +106,7 @@ fn main() -> Result<()> {
                 kind: ColliderKind::Sphere(5.0),
                 position: Vec3::ZERO,
             },
-            loot: LootTable::default().add(
-                1.0,
-                vec![ItemStack {
-                    item: Item::CopperOre,
-                    quantity: 2,
-                }],
-            ),
+            loot: 0, 
             timer: Timer::new(Duration::from_secs(1)),
         },
         name: Name(String::from("Copper Ore")),
