@@ -1,10 +1,11 @@
 mod assets;
 mod camera;
 mod collider;
-mod equipment;
 mod craft;
+mod equipment;
 mod event;
 mod gather;
+mod interact;
 mod inventory;
 mod net;
 mod player;
@@ -19,8 +20,12 @@ use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::Gatherable;
 use glam::{Vec3, Vec4};
+use interact::Interactable;
 use net::Connection;
-use nyx::{data, item::{Item, ItemStack}};
+use nyx::{
+    data,
+    item::{Item, ItemStack},
+};
 use player::Player;
 use renderer::{RenderObject, Renderer};
 use std::time::Duration;
@@ -36,6 +41,7 @@ struct CopperOre {
     pub render: RenderObject,
     pub transform: Transform,
     pub gatherable: Gatherable,
+    pub interactable: Interactable,
     pub name: Name,
 }
 
@@ -70,6 +76,7 @@ fn main() -> Result<()> {
         .with(inventory::add)
         .with(craft::add)
         .with(equipment::add)
+        .with(interact::add)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -106,9 +113,10 @@ fn main() -> Result<()> {
                 kind: ColliderKind::Sphere(5.0),
                 position: Vec3::ZERO,
             },
-            loot: 0, 
+            loot: 0,
             timer: Timer::new(Duration::from_secs(1)),
         },
+        interactable: Interactable::new(&world, "Gather Copper Ore"),
         name: Name(String::from("Copper Ore")),
     });
 

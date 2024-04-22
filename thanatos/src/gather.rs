@@ -8,13 +8,7 @@ use styx::components::{self, Container, Offset, Text, VAlign, VGroup};
 use tecs::{utils::Name, EntityId, Is};
 
 use crate::{
-    collider::Collider,
-    net::Connection,
-    player::Player,
-    renderer::{Anchor, Renderer, Ui},
-    transform::Transform,
-    window::Keyboard,
-    Timer, World,
+    collider::Collider, interact::Interactable, net::Connection, player::Player, renderer::{Anchor, Renderer, Ui}, transform::Transform, window::Keyboard, Timer, World
 };
 
 pub struct Gatherable {
@@ -35,7 +29,6 @@ impl Gatherable {
 }
 
 pub fn tick(world: &World) {
-    let keyboard = world.get::<Keyboard>().unwrap();
     let entity = {
         let (gatherables, entities) = world.query::<(&Gatherable, EntityId)>();
         let (transforms, _) = world.query::<(&Transform, Is<Player>)>();
@@ -52,48 +45,16 @@ pub fn tick(world: &World) {
         entity
     };
 
-    {
-        let mut ui = world.get_mut::<Ui>().unwrap();
-        let font = ui.font.clone();
-        let name = world.get_component::<Name>(entity);
-        ui.add(
-            Anchor::Cursor,
-            Offset {
-                offset: Vec2::new(32.0, 32.0),
-                child: VGroup::new(VAlign::Center, 4.0)
-                    .add(Container {
-                        padding: 4.0,
-                        colour: Vec4::new(0.2, 0.2, 0.2, 1.0),
-                        radius: 4.0,
-                        child: Text {
-                            font: font.clone(),
-                            text: String::from("F"),
-                            font_size: 24.0,
-                            colour: Vec4::ONE,
-                        },
-                    })
-                    .add(Container {
-                        padding: 4.0,
-                        colour: Vec4::new(0.1, 0.1, 0.1, 1.0),
-                        radius: 4.0,
-                        child: Text {
-                            font: font.clone(),
-                            text: match name {
-                                Some(name) => format!("Gather {name}"),
-                                None => String::from("Gather"),
-                            },
-                            font_size: 16.0,
-                            colour: Vec4::ONE,
-                        },
-                    }),
-            },
-        )
-    }
+    
+    let mut interactable = world.get_component_mut::<Interactable>(entity).unwrap();
+    interactable.priority = 0.0;
 
-    if keyboard.is_down("f") {
+    let ui = world.get::<Ui>().unwrap();
+    if ui.signals.get(interactable.signal) {
         let mut gatherable = world.get_component_mut::<Gatherable>(entity).unwrap();
         let mut conn = world.get_mut::<Connection>().unwrap();
         conn.write(Serverbound::Gather(gatherable.gather()))
             .unwrap();
     }
+
 }
