@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use crate::{camera::Camera, collider::Ray, window::Window};
 use anyhow::Result;
 use assets::{Material, Mesh};
-use collider::{Collider, ColliderKind};
+use collider::{Collider, ColliderKind, ColliderPositionKind};
 use event::Event;
 use gather::{Gatherable, LootTable};
 use glam::{Vec2, Vec3, Vec4};
@@ -123,7 +123,7 @@ fn raycast_test(world: &World) {
 
         let colliders = world.query::<&Collider>();
         colliders.iter().for_each(|collider| {
-            println!("{:?}", collider.intersects(ray));
+            println!("{:?}", collider.intersects(ray, world));
         })
     }
 }
@@ -199,7 +199,7 @@ async fn main() -> Result<()> {
         gatherable: Gatherable {
             collider: Collider {
                 kind: ColliderKind::Sphere(5.0),
-                position: Vec3::ZERO,
+                position: ColliderPositionKind::Absolute(Vec3 { x: 0.0, y: 0.0, z: 0.0 }),
             },
             loot: LootTable::default().add(
                 1.0,
@@ -224,12 +224,13 @@ async fn main() -> Result<()> {
             earth_resistance: 0, 
             lightning_resistance: 0, 
             air_resistance: 0, 
-            nature_resistance: 0 
+            nature_resistance: 0, 
+            is_dead: false
         },
         collider: Collider {
             // kind: ColliderKind::Aabb(Vec3 { x: 1., y: 1., z: 1. }),
             kind: ColliderKind::Sphere(10.),
-            position: Vec3::ZERO,
+            position: ColliderPositionKind::Absolute(Vec3 { x: 5.0, y: 0.0, z: 0.0 }),
         },
     });  
 

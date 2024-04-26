@@ -46,8 +46,8 @@ pub struct Gatherable {
 }
 
 impl Gatherable {
-    pub fn gatherable(&self, position: Vec3) -> bool {
-        self.collider.within(position)
+    pub fn gatherable(&self, position: Vec3, world: &World) -> bool {
+        self.collider.within(position, world)
     }
 
     pub fn gather(&mut self) -> &[ItemStack] {
@@ -67,7 +67,7 @@ pub fn tick(world: &World) {
                 .iter()
                 .zip(entities.into_iter())
                 .filter(|(gatherable, _)| gatherable.timer.done())
-                .filter(|(gatherable, _)| gatherable.gatherable(transform.translation))
+                .filter(|(gatherable, _)| gatherable.gatherable(transform.translation, world))
                 .next()
             else {
                 return;

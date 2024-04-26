@@ -1,6 +1,9 @@
+use std::{borrow::Borrow, default};
+
+use glam::{Quat, Vec3};
 use tecs::{EntityId, Is};
 
-use crate::{camera::Camera, player::Player, transform::Transform, window::Keyboard, TargetDummy, World};
+use crate::{camera::Camera, player::{Player, TargetedEntity}, transform::{self, Transform}, window::Keyboard, TargetDummy, World};
 
 #[derive(Debug)]
 pub struct AttackType {
@@ -29,6 +32,9 @@ pub struct CombatDefensive {
     pub air_resistance: u32,
     pub nature_resistance: u32,
 
+    // until you can properly remove entities
+    pub is_dead: bool
+
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct AttackOutcome {
@@ -49,12 +55,12 @@ impl AttackOutcome {
     }
 }
 
-pub trait Attack {
+pub trait Attackable {
     /// returns the new health of the attacked entity along with how much damge was done.
     fn receive_attack(&mut self, damage_source: &CombatOffensive) -> AttackOutcome;
 }
 
-impl Attack for CombatDefensive {
+impl Attackable for CombatDefensive {
     fn receive_attack(&mut self, source: &CombatOffensive) -> AttackOutcome {
 
         let fire_damage: u32;
@@ -96,7 +102,12 @@ impl Attack for CombatDefensive {
 
         let total_damage = fire_damage + earth_damage + lightning_damage + air_damage + nature_damage + source.true_damage;
 
-        self.health -= total_damage;
+        // to prevent underflows check if the total damage is greater than health and if so set to 0
+        if total_damage > self.health {
+            self.health = 0;
+        } else {
+            self.health -= total_damage;
+        }
 
 
         return AttackOutcome {
@@ -118,7 +129,7 @@ pub fn tick(world: &World) {
     let keyboard = world.get::<Keyboard>().unwrap();
     let mut camera = world.get_mut::<Camera>().unwrap();
 
-    let (mut transform, player_offensive, _) = world.query_one::<(&mut Transform, &CombatOffensive, Is<Player>)>();
+    let (mut transform, player_offensive, mut targeted, _) = world.query_one::<(&mut Transform, &CombatOffensive, &mut TargetedEntity, Is<Player>)>();
 
     // combat debug stuff
     if keyboard.is_down("z") {
@@ -126,13 +137,42 @@ pub fn tick(world: &World) {
         
 
         let (dummy_ids, _) = world.query::<(EntityId, Is<crate::TargetDummy>)>();
-        for id in dummy_ids {
-            let mut defense_struct = world.get_component_mut::<crate::combat::CombatDefensive>(id).unwrap();
+        for (index, id) in dummy_ids.iter().enumerate() {
+            let mut defense_struct = world.get_component_mut::<crate::combat::CombatDefensive>(*id).unwrap();
+            if defense_struct.is_dead { continue; }
 
             let outcome = defense_struct.receive_attack(&player_offensive);
             println!("Outcome from attack: {:?}", outcome);
 
+            if outcome.post_attack_health == 0 {
+                println!("entity died, destroying now");
+                let mut dummy_transfrom = world.get_component_mut::<Transform>(*id).unwrap();
+                *dummy_transfrom = transform::Transform::new(Vec3::MAX, Quat::IDENTITY, Vec3::ONE);
+                defense_struct.is_dead = true;
+            }
+
         }
+    }
+
+    // attack the targeted entity
+    if keyboard.is_down("x") {
+        match *targeted {
+            TargetedEntity::None => println!("No enemy Targeted"),
+            TargetedEntity::EntityId(targeted_id) => {
+                let mut defence = world.get_component_mut::<CombatDefensive>(targeted_id).unwrap();
+                if !defence.is_dead {
+                    let outcome = defence.receive_attack(&player_offensive);
+                    if outcome.post_attack_health == 0 {
+                        println!("entity died, destroying now");
+                        let mut dummy_transfrom = world.get_component_mut::<Transform>(targeted_id).unwrap();
+                        *dummy_transfrom = transform::Transform::new(Vec3::MAX, Quat::IDENTITY, Vec3::ONE);
+                        defence.is_dead = true;
+                    }
+                    println!("Outcome from attack: {:?}", outcome);
+                }
+            },
+            TargetedEntity::Position(_) => println!("area of effect/non entity targeting completed"),
+        } 
     }
 
     let mouse = world.get_mut::<crate::window::Mouse>().unwrap();
@@ -148,15 +188,14 @@ pub fn tick(world: &World) {
 
         if ids.len() == 0 { return; }
 
-        let mut clicked_on: &EntityId; 
         for (ind, collider) in colliders.iter().enumerate() {
-            if collider.intersects(ray).is_some() {
-                clicked_on = &ids[ind];
+            if collider.intersects(ray, world).is_some() {
+                *targeted = TargetedEntity::EntityId(ids[ind]); 
                 println!("target selected!");
 
             }
         }
-
+  
 
     }
 }
