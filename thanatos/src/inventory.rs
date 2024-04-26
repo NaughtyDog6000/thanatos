@@ -1,16 +1,13 @@
 use glam::Vec4;
 use nyx::{
-    item::{Inventory, ItemStack},
+    item::{Inventory, Item, ItemStack},
     protocol::Clientbound,
 };
 use styx::components::{Container, HAlign, HGroup, Text};
 use tecs::SystemMut;
 
 use crate::{
-    event::Event,
-    renderer::{Anchor, Ui},
-    window::Keyboard,
-    World,
+    colours::rarity_colour, event::Event, renderer::{Anchor, Ui}, window::Keyboard, World
 };
 
 pub struct InventoryUi {
@@ -38,12 +35,16 @@ impl SystemMut<Event> for InventoryUi {
 
         let stacks = inventory.items().fold(
             HGroup::new(HAlign::Left, 4.0),
-            |stacks, ItemStack { item, quantity }| {
+            |stacks,
+             ItemStack {
+                 item: Item { kind, rarity },
+                 quantity,
+             }| {
                 stacks.add(Text {
-                    text: format!("{item} x {quantity}"),
+                    text: format!("{kind} x {quantity}"),
                     font_size: 24.0,
                     font: ui.font.clone(),
-                    colour: Vec4::ONE,
+                    colour: rarity_colour(rarity),
                 })
             },
         );

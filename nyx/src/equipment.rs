@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::item::Rarity;
+
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum EquipmentKind {
     CopperSword,
@@ -25,6 +27,7 @@ pub struct EquipmentId(pub u64);
 pub struct Equipment {
     pub id: EquipmentId,
     pub kind: EquipmentKind,
+    pub rarity: Rarity,
     pub durability: u32,
     pub passives: Vec<Passive>,
 }

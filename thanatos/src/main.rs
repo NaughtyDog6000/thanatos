@@ -1,6 +1,7 @@
 mod assets;
 mod camera;
 mod collider;
+mod colours;
 mod craft;
 mod equipment;
 mod event;
@@ -100,7 +101,7 @@ fn main() -> Result<()> {
             material: orange,
         },
         transform,
-        health: Health(100.0)
+        health: Health(100.0),
     });
 
     world.spawn(CopperOre {

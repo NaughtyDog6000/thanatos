@@ -1,7 +1,7 @@
 use glam::Vec4;
 use nyx::{
     data,
-    item::{Inventory, ItemStack, Recipe, RecipeOutput},
+    item::{Inventory, Item, ItemStack, Rarity, Recipe, RecipeOutput},
     protocol::Serverbound,
 };
 use styx::{
@@ -74,8 +74,8 @@ impl SystemMut<Event> for CraftUi {
                 };
 
                 let text = match output {
-                    RecipeOutput::Items(ItemStack { item, quantity }) => {
-                        format!("{item} x {quantity}")
+                    RecipeOutput::Items(kind, quantity) => {
+                        format!("{kind} x {quantity}")
                     }
                     RecipeOutput::Equipment(equipment) => equipment.to_string(),
                 };
@@ -104,10 +104,10 @@ impl SystemMut<Event> for CraftUi {
         if let Some(index) = &self.recipe {
             let recipe = &self.recipes.get(*index).unwrap().1;
 
-            let inputs = recipe.inputs.iter().fold(
+            let inputs = recipe.inputs.iter().cloned().fold(
                 HGroup::new(HAlign::Left, 16.0).add(text("Inputs:", 48.0, ui.font.clone())),
-                |inputs, input| {
-                    let colour = if input.quantity <= inventory.get(input.item).unwrap_or_default()
+                |inputs, (kind, quantity)| {
+                    let colour = if quantity <= inventory.get(Item { kind, rarity: Rarity::Common }).unwrap_or_default()
                     {
                         Vec4::new(0.0, 1.0, 0.0, 1.0)
                     } else {
@@ -115,7 +115,7 @@ impl SystemMut<Event> for CraftUi {
                     };
 
                     inputs.add(Text {
-                        text: format!("{} x {}", input.item, input.quantity),
+                        text: format!("{} x {}", kind, quantity),
                         font_size: 48.0,
                         font: ui.font.clone(),
                         colour,
@@ -127,8 +127,8 @@ impl SystemMut<Event> for CraftUi {
                 HGroup::new(HAlign::Left, 16.0).add(text("Outputs:", 48.0, ui.font.clone())),
                 |outputs, output| {
                     let text = match output {
-                        RecipeOutput::Items(ItemStack { item, quantity }) => {
-                            format!("{item} x {quantity}")
+                        RecipeOutput::Items(kind, quantity) => {
+                            format!("{kind} x {quantity}")
                         }
                         RecipeOutput::Equipment(equipment) => equipment.to_string(),
                     };

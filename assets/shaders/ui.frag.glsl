@@ -42,12 +42,19 @@ float rect_sdf(
 void main() {
     float distance = rect_sdf(position.xy, area.xy, area.zw, radius);
 
+    vec4 col = vec4(0.0);
+
     if (distance > 0.0) {
-        outColour = vec4(0.0);
+        col = vec4(0.0);
     } else if (texcoord == vec2(0.0)) {
-        outColour = colour;
+        col = colour;
     } else {
-        outColour = colour * textureLod(atlas, texcoord, 0).x;
+        col = colour * textureLod(atlas, texcoord, 0).x;
     }
+
+    outColour.x = pow(col.x, 2.2);
+    outColour.y = pow(col.y, 2.2);
+    outColour.z = pow(col.z, 2.2);
+    outColour.w = col.w;
 }
 

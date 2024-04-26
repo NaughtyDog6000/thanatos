@@ -5,13 +5,13 @@ use rand::Rng;
 use crate::equipment::EquipmentKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum Item {
+pub enum ItemKind {
     Wood,
     CopperOre,
     CopperIngot,
 }
 
-impl Display for Item {
+impl Display for ItemKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -25,6 +25,22 @@ impl Display for Item {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Rarity {
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+    Legendary
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Item {
+    pub kind: ItemKind,
+    pub rarity: Rarity
+}
+
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ItemStack {
     pub item: Item,
@@ -33,24 +49,24 @@ pub struct ItemStack {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum RecipeOutput {
-    Items(ItemStack),
+    Items(ItemKind, usize),
     Equipment(EquipmentKind)
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Recipe {
-    pub inputs: Vec<ItemStack>,
+    pub inputs: Vec<(ItemKind, usize)>,
     pub outputs: Vec<RecipeOutput>,
 }
 
 impl Recipe {
     pub fn craftable(&self, inventory: &[ItemStack]) -> bool {
-        self.inputs.iter().all(|stack| {
-            stack.quantity
+        self.inputs.iter().all(|(kind, quantity)| {
+            *quantity
                 <= inventory
                     .iter()
                     .find_map(|s| {
-                        if s.item == stack.item {
+                        if s.item.kind == *kind {
                             Some(s.quantity)
                         } else {
                             None

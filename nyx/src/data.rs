@@ -1,25 +1,16 @@
 use crate::{
     equipment::EquipmentKind,
-    item::{Item, ItemStack, LootTable, Recipe, RecipeOutput},
+    item::{Item, ItemKind, ItemStack, LootTable, Rarity, Recipe, RecipeOutput},
 };
 
 pub fn recipes() -> Vec<Recipe> {
     vec![
         Recipe {
-            inputs: vec![ItemStack {
-                item: Item::CopperOre,
-                quantity: 2,
-            }],
-            outputs: vec![RecipeOutput::Items(ItemStack {
-                item: Item::CopperIngot,
-                quantity: 1,
-            })],
+            inputs: vec![(ItemKind::CopperOre, 2)],
+            outputs: vec![RecipeOutput::Items(ItemKind::CopperIngot, 1)],
         },
         Recipe {
-            inputs: vec![ItemStack {
-                item: Item::CopperIngot,
-                quantity: 3,
-            }],
+            inputs: vec![(ItemKind::CopperIngot, 3)],
             outputs: vec![RecipeOutput::Equipment(EquipmentKind::CopperSword)],
         },
     ]
@@ -29,7 +20,10 @@ pub fn nodes() -> Vec<LootTable> {
     vec![LootTable::default().add(
         1.0,
         vec![ItemStack {
-            item: Item::CopperOre,
+            item: Item {
+                kind: ItemKind::CopperOre,
+                rarity: Rarity::Common,
+            },
             quantity: 2,
         }],
     )]

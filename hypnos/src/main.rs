@@ -12,7 +12,7 @@ use glam::Vec3;
 use nyx::{
     data,
     equipment::{Equipment, EquipmentId, EquipmentInventory, Passive},
-    item::{Inventory, ItemStack, RecipeOutput},
+    item::{Inventory, Item, ItemStack, Rarity, RecipeOutput},
     protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
 };
 
@@ -178,25 +178,27 @@ fn main() -> Result<()> {
                     if !recipe.craftable(&inventory.items().collect::<Vec<_>>()) {
                         continue;
                     }
-                    recipe.inputs.iter().for_each(|stack| {
-                        inventory.remove(*stack);
+                    recipe.inputs.iter().cloned().for_each(|(kind, quantity)| {
+                        let item = Item { kind, rarity: Rarity::Common };
+                        inventory.remove(ItemStack { item, quantity });
                         tx.send((
                             addr,
                             Clientbound::SetStack(ItemStack {
-                                item: stack.item,
-                                quantity: inventory.get(stack.item).unwrap_or_default(),
+                                item,
+                                quantity: inventory.get(item).unwrap_or_default(),
                             }),
                         ))
                         .unwrap();
                     });
-                    recipe.outputs.iter().for_each(|output| match output {
-                        RecipeOutput::Items(stack) => {
-                            inventory.add(*stack);
+                    recipe.outputs.iter().cloned().for_each(|output| match output {
+                        RecipeOutput::Items(kind, quantity) => {
+                            let item = Item { kind, rarity: Rarity::Common };
+                            inventory.add(ItemStack { item, quantity });
                             tx.send((
                                 addr,
                                 Clientbound::SetStack(ItemStack {
-                                    item: stack.item,
-                                    quantity: inventory.get(stack.item).unwrap_or_default(),
+                                    item,
+                                    quantity: inventory.get(item).unwrap_or_default(),
                                 }),
                             ))
                             .unwrap();
@@ -204,7 +206,8 @@ fn main() -> Result<()> {
                         RecipeOutput::Equipment(kind) => {
                             let piece = Equipment {
                                 id: EquipmentId(next_equipment),
-                                kind: *kind,
+                                kind,
+                                rarity: Rarity::Legendary,
                                 durability: 10,
                                 passives: vec![Passive::TestPassive],
                             };

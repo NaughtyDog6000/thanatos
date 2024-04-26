@@ -7,10 +7,7 @@ use styx::{
 use tecs::SystemMut;
 
 use crate::{
-    event::Event,
-    renderer::{Anchor, Ui},
-    window::Keyboard,
-    World,
+    colours::rarity_colour, event::Event, renderer::{Anchor, Ui}, window::Keyboard, World
 };
 
 #[derive(Default)]
@@ -48,11 +45,10 @@ impl SystemMut<Event> for EquipmentUi {
         let view = inventory.0.iter().fold(
             HGroup::new(styx::components::HAlign::Left, 16.0),
             |view, equipable| {
-                let colour = if equipment.iter().any(|id| equipable.id == *id) {
-                    Vec4::ONE
-                } else {
-                    Vec4::new(0.5, 0.5, 0.5, 1.0)
-                };
+                let mut colour = rarity_colour(equipable.rarity);
+                if !equipment.iter().any(|id| equipable.id == *id) {
+                    colour *= Vec4::new(0.5, 0.5, 0.5, 1.0)
+                }
 
                 let signal = ui.signals.signal();
                 self.signals.push((equipable.id, signal));
