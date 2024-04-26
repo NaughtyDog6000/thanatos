@@ -26,7 +26,7 @@ use nyx::{
     data,
     item::{Item, ItemStack},
 };
-use player::Player;
+use player::{Health, Player};
 use renderer::{RenderObject, Renderer};
 use std::time::Duration;
 use tecs::{
@@ -100,6 +100,7 @@ fn main() -> Result<()> {
             material: orange,
         },
         transform,
+        health: Health(100.0)
     });
 
     world.spawn(CopperOre {

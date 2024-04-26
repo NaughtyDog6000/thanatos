@@ -2,21 +2,13 @@ use std::{collections::HashMap, fmt::Display};
 
 use rand::Rng;
 
+use crate::equipment::EquipmentKind;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Item {
     Wood,
     CopperOre,
     CopperIngot,
-    CopperSword,
-}
-
-impl Item {
-    pub fn equipable(&self) -> bool {
-        match self {
-            Self::CopperSword => true,
-            _ => false,
-        }
-    }
 }
 
 impl Display for Item {
@@ -28,7 +20,6 @@ impl Display for Item {
                 Self::Wood => "Wood",
                 Self::CopperOre => "Copper Ore",
                 Self::CopperIngot => "Copper Ingot",
-                Self::CopperSword => "Copper Sword",
             }
         )
     }
@@ -40,10 +31,16 @@ pub struct ItemStack {
     pub quantity: usize,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum RecipeOutput {
+    Items(ItemStack),
+    Equipment(EquipmentKind)
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Recipe {
     pub inputs: Vec<ItemStack>,
-    pub outputs: Vec<ItemStack>,
+    pub outputs: Vec<RecipeOutput>,
 }
 
 impl Recipe {

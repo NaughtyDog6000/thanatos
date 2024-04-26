@@ -1,5 +1,9 @@
 use glam::Vec4;
-use nyx::{data, item::{Inventory, Recipe}, protocol::Serverbound};
+use nyx::{
+    data,
+    item::{Inventory, ItemStack, Recipe, RecipeOutput},
+    protocol::Serverbound,
+};
 use styx::{
     components::{text, Clicked, Container, HAlign, HGroup, Text, VAlign, VGroup},
     Signal,
@@ -69,10 +73,17 @@ impl SystemMut<Event> for CraftUi {
                     Vec4::new(1.0, 0.0, 0.0, 1.0)
                 };
 
+                let text = match output {
+                    RecipeOutput::Items(ItemStack { item, quantity }) => {
+                        format!("{item} x {quantity}")
+                    }
+                    RecipeOutput::Equipment(equipment) => equipment.to_string(),
+                };
+
                 component.add(Clicked {
                     signal: *signal,
                     child: Text {
-                        text: format!("{} x {}", output.item, output.quantity),
+                        text,
                         font_size: 48.0,
                         font: ui.font.clone(),
                         colour,
@@ -115,8 +126,15 @@ impl SystemMut<Event> for CraftUi {
             let outputs = recipe.outputs.iter().fold(
                 HGroup::new(HAlign::Left, 16.0).add(text("Outputs:", 48.0, ui.font.clone())),
                 |outputs, output| {
+                    let text = match output {
+                        RecipeOutput::Items(ItemStack { item, quantity }) => {
+                            format!("{item} x {quantity}")
+                        }
+                        RecipeOutput::Equipment(equipment) => equipment.to_string(),
+                    };
+
                     outputs.add(Text {
-                        text: format!("{} x {}", output.item, output.quantity),
+                        text,
                         font_size: 48.0,
                         font: ui.font.clone(),
                         colour: Vec4::ONE,

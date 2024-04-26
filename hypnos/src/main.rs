@@ -11,7 +11,8 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use glam::Vec3;
 use nyx::{
     data,
-    item::{Inventory, ItemStack},
+    equipment::{Equipment, EquipmentId, EquipmentInventory, Passive},
+    item::{Inventory, ItemStack, RecipeOutput},
     protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
 };
 
@@ -21,6 +22,7 @@ pub struct Client {
     id: ClientId,
     position: Cell<Vec3>,
     inventory: RefCell<Inventory>,
+    equipment: RefCell<EquipmentInventory>,
 }
 
 fn handle_networking(
@@ -99,6 +101,7 @@ fn add_client(
             id,
             position: Cell::new(Vec3::ZERO),
             inventory: RefCell::new(Inventory::default()),
+            equipment: RefCell::new(EquipmentInventory(Vec::new())),
         },
     );
 
@@ -116,6 +119,7 @@ fn main() -> Result<()> {
     std::thread::spawn(|| handle_networking(socket, clientbound_rx, flush_rx, serverbound_tx));
 
     let mut next = 0;
+    let mut next_equipment = 0;
     let mut tick = Tick(0);
     let rx = serverbound_rx;
     let tx = clientbound_tx;
@@ -170,6 +174,7 @@ fn main() -> Result<()> {
                         continue;
                     };
                     let mut inventory = client.inventory.borrow_mut();
+                    let mut equipment = client.equipment.borrow_mut();
                     if !recipe.craftable(&inventory.items().collect::<Vec<_>>()) {
                         continue;
                     }
@@ -184,16 +189,29 @@ fn main() -> Result<()> {
                         ))
                         .unwrap();
                     });
-                    recipe.outputs.iter().for_each(|stack| {
-                        inventory.add(*stack);
-                        tx.send((
-                            addr,
-                            Clientbound::SetStack(ItemStack {
-                                item: stack.item,
-                                quantity: inventory.get(stack.item).unwrap_or_default(),
-                            }),
-                        ))
-                        .unwrap();
+                    recipe.outputs.iter().for_each(|output| match output {
+                        RecipeOutput::Items(stack) => {
+                            inventory.add(*stack);
+                            tx.send((
+                                addr,
+                                Clientbound::SetStack(ItemStack {
+                                    item: stack.item,
+                                    quantity: inventory.get(stack.item).unwrap_or_default(),
+                                }),
+                            ))
+                            .unwrap();
+                        }
+                        RecipeOutput::Equipment(kind) => {
+                            let piece = Equipment {
+                                id: EquipmentId(next_equipment),
+                                kind: *kind,
+                                durability: 10,
+                                passives: vec![Passive::TestPassive],
+                            };
+                            next_equipment += 1;
+                            equipment.0.push(piece.clone());
+                            tx.send((addr, Clientbound::AddEquipment(piece))).unwrap();
+                        }
                     })
                 }
                 _ => (),

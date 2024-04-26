@@ -7,13 +7,26 @@ use thanatos_macros::Archetype;
 
 const SPEED: f32 = 5.0;
 
+pub struct Health(pub f32);
+
 #[derive(Archetype)]
 pub struct Player {
     pub render: RenderObject,
     pub transform: Transform,
+    pub health: Health,
 }
 
 impl Player {
+    pub fn death(world: &World) {
+        let (mut health, mut transform, _) =
+            world.query_one::<(&mut Health, &mut Transform, Is<Player>)>();
+
+        if health.0 < 0.0 {
+            transform.translation = Vec3::ZERO;
+            health.0 = 100.0;
+        }
+    }
+
     pub fn tick(world: &World) {
         let keyboard = world.get::<Keyboard>().unwrap();
         let mut camera = world.get_mut::<Camera>().unwrap();
@@ -41,4 +54,8 @@ impl Player {
 
         camera.target = transform.translation;
     }
+}
+
+pub fn add(world: World) -> World {
+    world.with_ticker(Player::tick).with_ticker(Player::death)
 }

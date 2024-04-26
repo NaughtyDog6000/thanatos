@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use crate::item::ItemStack;
+use crate::{equipment::Equipment, item::ItemStack};
 
 pub const TPS: f32 = 20.0;
 
@@ -15,13 +15,14 @@ impl Tick {
     }
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Clientbound {
     AuthSuccess(ClientId),
     Spawn(ClientId, Vec3),
     Despawn(ClientId),
     Move(ClientId, Vec3, Tick),
-    SetStack(ItemStack)
+    SetStack(ItemStack),
+    AddEquipment(Equipment)
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
