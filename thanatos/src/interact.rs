@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec4};
 use styx::{components::{Container, Offset, Text, VAlign, VGroup}, Signal};
 
-use crate::{renderer::{Anchor, Ui}, window::Keyboard, World};
+use crate::{renderer::{Anchor, Ui}, window::{Keybind, Keyboard}, World};
 
 pub struct Interactable {
     pub priority: f32,
@@ -24,6 +24,7 @@ impl Interactable {
 fn interact_ui(world: &World) {
     let interactables = world.query::<&Interactable>();
     let Some(interactable) = interactables.iter().min_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap()) else { return };
+    if interactable.priority == f32::MAX { return; }
 
     let mut ui = world.get_mut::<Ui>().unwrap();
     let font = ui.font.clone();
@@ -59,7 +60,7 @@ fn interact_ui(world: &World) {
     );
 
     let keyboard = world.get::<Keyboard>().unwrap();
-    if keyboard.is_down("f") {
+    if keyboard.is_down(Keybind::Interact) {
         ui.signals.set(interactable.signal); 
     }
 }

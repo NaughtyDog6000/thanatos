@@ -22,10 +22,6 @@ use gather::Gatherable;
 use glam::{Vec3, Vec4};
 use interact::Interactable;
 use net::Connection;
-use nyx::{
-    data,
-    item::{Item, ItemStack},
-};
 use player::Player;
 use renderer::{RenderObject, Renderer};
 use std::time::Duration;
