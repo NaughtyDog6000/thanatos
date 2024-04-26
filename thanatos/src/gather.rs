@@ -8,7 +8,14 @@ use styx::components::{self, Container, Offset, Text, VAlign, VGroup};
 use tecs::{utils::Name, EntityId, Is};
 
 use crate::{
-    collider::Collider, interact::Interactable, net::Connection, player::Player, renderer::{Anchor, Renderer, Ui}, transform::Transform, window::Keyboard, Timer, World
+    collider::Collider,
+    interact::Interactable,
+    net::Connection,
+    player::Player,
+    renderer::{Anchor, Renderer, Ui},
+    transform::Transform,
+    window::Keyboard,
+    Timer, World,
 };
 
 pub struct Gatherable {
@@ -30,7 +37,11 @@ impl Gatherable {
 
 pub fn tick(world: &World) {
     let entity = {
-        let (gatherables, entities) = world.query::<(&Gatherable, EntityId)>();
+        let (gatherables, mut interactables, entities) =
+            world.query::<(&Gatherable, &mut Interactable, EntityId)>();
+
+        interactables.for_each(|interactable| interactable.priority = f32::MAX);
+
         let (transforms, _) = world.query::<(&Transform, Is<Player>)>();
         let transform = transforms.iter().next().unwrap();
         let Some((_, entity)) = gatherables
@@ -45,7 +56,6 @@ pub fn tick(world: &World) {
         entity
     };
 
-    
     let mut interactable = world.get_component_mut::<Interactable>(entity).unwrap();
     interactable.priority = 0.0;
 
@@ -56,5 +66,4 @@ pub fn tick(world: &World) {
         conn.write(Serverbound::Gather(gatherable.gather()))
             .unwrap();
     }
-
 }
