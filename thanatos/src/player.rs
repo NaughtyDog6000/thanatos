@@ -1,5 +1,5 @@
 use crate::{
-    camera::Camera, combat::CombatOffensive, renderer::RenderObject, transform::Transform, window::Keyboard, Clock, World, combat::Attack
+    camera::Camera, combat::CombatOffensive, renderer::RenderObject, transform::Transform, window::Keyboard, Clock, World, combat::Attackable
 };
 use glam::{Quat, Vec3};
 use tecs::{impl_archetype, EntityId, Is};

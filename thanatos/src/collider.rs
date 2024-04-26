@@ -1,4 +1,9 @@
+use std::default;
+
 use glam::Vec3;
+use tecs::EntityId;
+
+use crate::World;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Ray {
@@ -24,22 +29,28 @@ pub enum ColliderKind {
     Sphere(f32),
     Aabb(Vec3),
 }
-#[derive(Clone, Copy, Debug)]
 
+#[derive(Clone, Copy, Debug)]
 pub enum ColliderPositionKind {
     Absolute(Vec3),
-    Relative(Vec3),
+    Relative(Vec3, EntityId), //offset, parent transform
+}
+
+impl Default for ColliderPositionKind {
+    fn default() -> Self {
+        Self::Absolute(Vec3 { x: 0.0, y: 0.0, z: 0.0 })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Collider {
     pub kind: ColliderKind,
-    pub position: Vec3,
+    pub position: ColliderPositionKind,
 }
 
 impl Collider {
-    pub fn within(&self, point: Vec3) -> bool {
-        let point = point - self.position;
+    pub fn within(&self, point: Vec3, world: &World) -> bool {
+        let point = point - self.calculate_position(world);
 
         match self.kind {
             ColliderKind::Sphere(radius) => point.length() < radius,
@@ -50,6 +61,17 @@ impl Collider {
                 .all(|(distance, max_distance)| distance.abs() < max_distance),
         }
     }
+
+    fn calculate_position(&self, world: &World) -> Vec3 {
+        return match self.position {
+            ColliderPositionKind::Absolute(pos) => pos,
+            ColliderPositionKind::Relative(rel_pos, parent_id) => {
+                let x = world.get_component::<crate::transform::Transform>(parent_id).map(|t| *t).unwrap_or_default();
+                x.translation + rel_pos
+            }
+        };
+    }
+
 
     fn quadratic(a: f32, b: f32, c: f32) -> Option<(f32, f32)> {
         let discriminant = b * b - 4.0 * a * c;
@@ -62,8 +84,10 @@ impl Collider {
         Some((x1, x2))
     }
 
-    pub fn intersects(&self, mut ray: Ray) -> Option<Vec3> {
-        ray.translate(-self.position);
+    pub fn intersects(&self, mut ray: Ray, world: &World) -> Option<Vec3> {
+        let calculated_position = self.calculate_position(world);
+        
+        ray.translate(-calculated_position);
 
         match self.kind {
             ColliderKind::Sphere(radius) => {
@@ -73,7 +97,7 @@ impl Collider {
                 Self::quadratic(a, b, c)
                     .map(|(t1, t2)| t1.min(t2))
                     .map(|t| ray.origin + ray.direction * t)
-                    .map(|pos| pos + self.position)
+                    .map(|pos| pos + calculated_position)
             }
             ColliderKind::Aabb(size) => {
                 let ts = size
@@ -108,7 +132,7 @@ impl Collider {
                 }
 
                 let t = if tmin < 0.0 { tmax } else { tmin };
-                Some(ray.origin + ray.direction * t + self.position)
+                Some(ray.origin + ray.direction * t + calculated_position)
             }
         }
     }
