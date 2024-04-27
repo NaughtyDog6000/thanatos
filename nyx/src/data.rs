@@ -13,6 +13,10 @@ pub fn recipes() -> Vec<Recipe> {
             inputs: vec![(ItemKind::CopperIngot, 3)],
             output: RecipeOutput::Equipment(EquipmentKind::CopperSword),
         },
+        Recipe {
+            inputs: vec![(ItemKind::CopperIngot, 2)],
+            output: RecipeOutput::Items(ItemKind::FireDamageReagent, 1),
+        },
     ]
 }
 

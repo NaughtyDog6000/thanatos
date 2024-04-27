@@ -2,13 +2,14 @@ use std::{collections::HashMap, fmt::Display};
 
 use rand::Rng;
 
-use crate::equipment::EquipmentKind;
+use crate::equipment::{EquipmentKind, Passive};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ItemKind {
     Wood,
     CopperOre,
     CopperIngot,
+    FireDamageReagent,
 }
 
 impl Display for ItemKind {
@@ -20,6 +21,7 @@ impl Display for ItemKind {
                 Self::Wood => "Wood",
                 Self::CopperOre => "Copper Ore",
                 Self::CopperIngot => "Copper Ingot",
+                Self::FireDamageReagent => "Fire Damage Reagent",
             }
         )
     }
@@ -52,12 +54,33 @@ impl Rarity {
             Self::Legendary => Self::Legendary,
         }
     }
+
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Common => 0,
+            Self::Uncommon => 1,
+            Self::Rare => 2,
+            Self::Epic => 3,
+            Self::Legendary => 4,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Item {
     pub kind: ItemKind,
     pub rarity: Rarity,
+}
+
+impl Item {
+    pub fn passive(&self) -> Option<Passive> {
+        match self.kind {
+            ItemKind::FireDamageReagent => {
+                Some(Passive::FireDamage(0.2 + 0.1 * self.rarity.index() as f32))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -146,10 +169,15 @@ impl Inventory {
         }
     }
 
-    pub fn remove(&mut self, stack: ItemStack) -> Option<()> {
-        self.0
-            .get_mut(&stack.item)
-            .map(|quantity| *quantity -= stack.quantity)
+    pub fn remove(&mut self, stack: ItemStack) -> bool {
+        let Some(quantity) = self.0.get_mut(&stack.item) else { return false };
+
+        if *quantity == stack.quantity {
+            self.0.remove(&stack.item);
+        } else {
+            *quantity -= stack.quantity
+        }
+        true
     }
 
     pub fn get(&self, item: Item) -> Option<usize> {
@@ -157,6 +185,11 @@ impl Inventory {
     }
 
     pub fn set(&mut self, stack: ItemStack) {
+        if stack.quantity == 0 {
+            self.0.remove(&stack.item);
+            return;
+        }
+
         match self.0.get_mut(&stack.item) {
             Some(quantity) => *quantity = stack.quantity,
             None => {
@@ -180,9 +213,11 @@ pub struct LootTable<T> {
 
 impl<T> Default for LootTable<T> {
     fn default() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
-} 
+}
 
 impl<T> LootTable<T> {
     pub fn add(mut self, probability: f32, loot: T) -> Self {

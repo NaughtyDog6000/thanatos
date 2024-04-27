@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use crate::{equipment::Equipment, item::{ItemStack, Rarity}};
+use crate::{equipment::{Equipment, EquipmentId, Passive}, item::{Item, ItemStack, Rarity}};
 
 pub const TPS: f32 = 20.0;
 
@@ -22,7 +22,8 @@ pub enum Clientbound {
     Despawn(ClientId),
     Move(ClientId, Vec3, Tick),
     SetStack(ItemStack),
-    AddEquipment(Equipment)
+    AddEquipment(Equipment),
+    SetPassives(EquipmentId, Vec<Passive>)
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -31,7 +32,8 @@ pub enum Serverbound {
     Move(Vec3, Tick),
     Disconnect,
     Craft(usize, Vec<Rarity>),
-    Gather(usize)
+    Gather(usize),
+    Refine(EquipmentId, Item)
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

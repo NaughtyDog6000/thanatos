@@ -26,7 +26,7 @@ pub enum Event {
     RightClick(Vec2)
 }
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Signal(usize);
 
 #[derive(Default, Clone, Debug)]

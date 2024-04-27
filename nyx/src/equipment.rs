@@ -15,14 +15,16 @@ impl Display for EquipmentKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub enum Passive {
+    Empty,
     FireDamage(f32),
 }
 
 impl Display for Passive {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Empty => write!(f, "Empty"),
             Self::FireDamage(bonus) => write!(f, "+{}% Fire Damage", (bonus * 100.0) as u32) 
         }
     }

@@ -1,4 +1,5 @@
 use std::{
+    borrow::{Borrow, BorrowMut},
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     io::ErrorKind,
@@ -11,12 +12,12 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use glam::Vec3;
 use nyx::{
     data,
-    equipment::{Equipment, EquipmentId, EquipmentInventory, Passive},
+    equipment::{self, Equipment, EquipmentId, EquipmentInventory, Passive},
     item::{Inventory, Item, ItemStack, LootTable, Rarity, RecipeOutput, RARITIES},
     protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
 };
 
-const FORCED_LATENCY: Duration = Duration::from_millis(300);
+const FORCED_LATENCY: Duration = Duration::from_millis(0);
 
 pub struct Client {
     id: ClientId,
@@ -178,8 +179,12 @@ fn main() -> Result<()> {
                     if !recipe.craftable(&inventory.items().collect::<Vec<_>>(), &rarities) {
                         continue;
                     }
-                    recipe.inputs.iter().cloned().zip(rarities.clone()).for_each(
-                        |((kind, quantity), rarity)| {
+                    recipe
+                        .inputs
+                        .iter()
+                        .cloned()
+                        .zip(rarities.clone())
+                        .for_each(|((kind, quantity), rarity)| {
                             let item = Item { kind, rarity };
                             inventory.remove(ItemStack { item, quantity });
                             tx.send((
@@ -190,8 +195,7 @@ fn main() -> Result<()> {
                                 }),
                             ))
                             .unwrap();
-                        },
-                    );
+                        });
 
                     let chances = recipe.rarity_chances(&rarities);
                     let rarity = *RARITIES
@@ -204,10 +208,7 @@ fn main() -> Result<()> {
 
                     match recipe.output {
                         RecipeOutput::Items(kind, quantity) => {
-                            let item = Item {
-                                kind,
-                                rarity,
-                            };
+                            let item = Item { kind, rarity };
                             inventory.add(ItemStack { item, quantity });
                             tx.send((
                                 addr,
@@ -224,13 +225,48 @@ fn main() -> Result<()> {
                                 kind,
                                 rarity,
                                 durability: 10,
-                                passives: vec![Passive::FireDamage(0.2)],
+                                passives: vec![Passive::Empty; rarity.index() + 1],
                             };
                             next_equipment += 1;
                             equipment.0.push(piece.clone());
                             tx.send((addr, Clientbound::AddEquipment(piece))).unwrap();
                         }
                     }
+                }
+                Serverbound::Refine(id, reagent) => {
+                    let Some(quantity) = client.inventory.borrow().get(reagent) else {
+                        continue;
+                    };
+
+                    let Some(replacement) = reagent.passive() else {
+                        continue;
+                    };
+                    let mut equipment = client.equipment.borrow_mut();
+
+                    let Some(equipment) =
+                        equipment.0.iter_mut().find(|equipment| equipment.id == id)
+                    else {
+                        continue;
+                    };
+
+                    {
+                        let Some(passive) = equipment
+                            .passives
+                            .iter_mut()
+                            .find(|passive| **passive == Passive::Empty)
+                        else {
+                            continue;
+                        };
+                        *passive = replacement;
+                    }
+
+                    let stack = ItemStack {
+                        item: reagent,
+                        quantity: quantity - 1,
+                    };
+                    client.inventory.borrow_mut().set(stack);
+                    tx.send((addr, Clientbound::SetStack(stack))).unwrap();
+                    tx.send((addr, Clientbound::SetPassives(id, equipment.passives.clone()))).unwrap();
                 }
                 _ => (),
             }
