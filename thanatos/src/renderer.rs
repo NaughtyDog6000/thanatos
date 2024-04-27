@@ -99,9 +99,13 @@ impl Ui {
 
     pub fn event(world: &World, event: &Event) {
         let event = match event {
-            Event::MousePress(MouseButton::Left) => {
+            Event::MousePress(button) => {
                 let mouse = world.get::<Mouse>().unwrap();
-                styx::Event::Click(mouse.position)
+                match button {
+                    MouseButton::Left => styx::Event::Click(mouse.position),
+                    MouseButton::Right => styx::Event::RightClick(mouse.position),
+                    _ => return
+                }
             }
             _ => return,
         };

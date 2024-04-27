@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use crate::{equipment::Equipment, item::ItemStack};
+use crate::{equipment::Equipment, item::{ItemStack, Rarity}};
 
 pub const TPS: f32 = 20.0;
 
@@ -25,12 +25,12 @@ pub enum Clientbound {
     AddEquipment(Equipment)
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum Serverbound {
     AuthRequest,
     Move(Vec3, Tick),
     Disconnect,
-    Craft(usize),
+    Craft(usize, Vec<Rarity>),
     Gather(usize)
 }
 

@@ -2,7 +2,10 @@ use fontdue::layout::TextStyle;
 use glam::{Vec2, Vec4};
 use std::rc::Rc;
 
-use crate::{clicked, Area, Constraint, Element, Event, Font, Rectangle, Scene, Signal, Signals};
+use crate::{
+    clicked, right_clicked, Area, Constraint, Element, Event, Font, Rectangle, Scene, Signal,
+    Signals,
+};
 
 pub struct Container<T: Element> {
     pub padding: f32,
@@ -40,7 +43,7 @@ pub struct Text {
     pub text: String,
     pub font: Rc<Font>,
     pub font_size: f32,
-    pub colour: Vec4
+    pub colour: Vec4,
 }
 
 impl Element for Text {
@@ -86,7 +89,7 @@ pub fn text<T: ToString>(text: T, font_size: f32, font: Rc<Font>) -> Text {
         text: text.to_string(),
         font_size,
         font,
-        colour: Vec4::ONE
+        colour: Vec4::ONE,
     }
 }
 
@@ -276,6 +279,97 @@ impl<T: Element> Element for Clicked<T> {
         if clicked(events, area) {
             signals.set(self.signal)
         }
+        self.child.paint(area, scene, events, signals)
+    }
+}
+
+pub struct RightClicked<T: Element> {
+    pub signal: Signal,
+    pub child: T,
+}
+
+impl<T: Element> Element for RightClicked<T> {
+    fn layout(&mut self, constraint: Constraint<Vec2>) -> Vec2 {
+        self.child.layout(constraint)
+    }
+
+    fn paint(&mut self, area: Area, scene: &mut Scene, events: &[Event], signals: &mut Signals) {
+        if right_clicked(events, area) {
+            signals.set(self.signal)
+        }
+        self.child.paint(area, scene, events, signals)
+    }
+}
+
+pub enum Gap {
+    Auto,
+}
+
+pub struct VPair<A: Element, B: Element> {
+    pub left: A,
+    pub right: B,
+    pub sizes: (Vec2, Vec2),
+    pub gap: Gap,
+}
+
+impl<A: Element, B: Element> VPair<A, B> {
+    pub fn new(left: A, right: B, gap: Gap) -> Self {
+        Self {
+            left,
+            right,
+            gap,
+            sizes: (Vec2::ZERO, Vec2::ZERO),
+        }
+    }
+}
+
+impl<A: Element, B: Element> Element for VPair<A, B> {
+    fn layout(&mut self, constraint: Constraint<Vec2>) -> Vec2 {
+        let left = self.left.layout(constraint);
+        let right = self.right.layout(Constraint {
+            min: constraint.min,
+            max: Vec2::new(constraint.max.x - left.x, constraint.max.y),
+        });
+        self.sizes = (left, right);
+
+        Vec2::new(constraint.max.x, left.y)
+    }
+
+    fn paint(&mut self, area: Area, scene: &mut Scene, events: &[Event], signals: &mut Signals) {
+        self.left.paint(
+            Area {
+                origin: area.origin,
+                size: self.sizes.0,
+            },
+            scene,
+            events,
+            signals,
+        );
+        self.right.paint(
+            Area {
+                origin: area
+                    .origin
+                    .with_x(area.origin.x + area.size.x - self.sizes.1.x),
+                size: self.sizes.1,
+            },
+            scene,
+            events,
+            signals,
+        );
+    }
+}
+
+pub struct Constrain<T: Element> {
+    pub child: T,
+    pub constraint: Constraint<Vec2>
+}
+
+impl<T: Element> Element for Constrain<T> {
+    fn layout(&mut self, _: Constraint<Vec2>) -> Vec2 {
+        self.child.layout(self.constraint)
+    }
+
+    fn paint(&mut self, area: Area, scene: &mut Scene, events: &[Event], signals: &mut Signals) {
         self.child.paint(area, scene, events, signals)
     }
 }

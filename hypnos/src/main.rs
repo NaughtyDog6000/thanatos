@@ -12,7 +12,7 @@ use glam::Vec3;
 use nyx::{
     data,
     equipment::{Equipment, EquipmentId, EquipmentInventory, Passive},
-    item::{Inventory, Item, ItemStack, Rarity, RecipeOutput},
+    item::{Inventory, Item, ItemStack, LootTable, Rarity, RecipeOutput, RARITIES},
     protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
 };
 
@@ -169,30 +169,45 @@ fn main() -> Result<()> {
                         .unwrap();
                     })
                 }
-                Serverbound::Craft(index) => {
+                Serverbound::Craft(index, rarities) => {
                     let Some(recipe) = recipes.get(index) else {
                         continue;
                     };
                     let mut inventory = client.inventory.borrow_mut();
                     let mut equipment = client.equipment.borrow_mut();
-                    if !recipe.craftable(&inventory.items().collect::<Vec<_>>()) {
+                    if !recipe.craftable(&inventory.items().collect::<Vec<_>>(), &rarities) {
                         continue;
                     }
-                    recipe.inputs.iter().cloned().for_each(|(kind, quantity)| {
-                        let item = Item { kind, rarity: Rarity::Common };
-                        inventory.remove(ItemStack { item, quantity });
-                        tx.send((
-                            addr,
-                            Clientbound::SetStack(ItemStack {
-                                item,
-                                quantity: inventory.get(item).unwrap_or_default(),
-                            }),
-                        ))
-                        .unwrap();
-                    });
-                    recipe.outputs.iter().cloned().for_each(|output| match output {
+                    recipe.inputs.iter().cloned().zip(rarities.clone()).for_each(
+                        |((kind, quantity), rarity)| {
+                            let item = Item { kind, rarity };
+                            inventory.remove(ItemStack { item, quantity });
+                            tx.send((
+                                addr,
+                                Clientbound::SetStack(ItemStack {
+                                    item,
+                                    quantity: inventory.get(item).unwrap_or_default(),
+                                }),
+                            ))
+                            .unwrap();
+                        },
+                    );
+
+                    let chances = recipe.rarity_chances(&rarities);
+                    let rarity = *RARITIES
+                        .into_iter()
+                        .zip(chances)
+                        .fold(LootTable::default(), |picker, (rarity, chance)| {
+                            picker.add(chance, rarity)
+                        })
+                        .pick();
+
+                    match recipe.output {
                         RecipeOutput::Items(kind, quantity) => {
-                            let item = Item { kind, rarity: Rarity::Common };
+                            let item = Item {
+                                kind,
+                                rarity,
+                            };
                             inventory.add(ItemStack { item, quantity });
                             tx.send((
                                 addr,
@@ -207,19 +222,18 @@ fn main() -> Result<()> {
                             let piece = Equipment {
                                 id: EquipmentId(next_equipment),
                                 kind,
-                                rarity: Rarity::Legendary,
+                                rarity,
                                 durability: 10,
-                                passives: vec![Passive::TestPassive],
+                                passives: vec![Passive::FireDamage(0.2)],
                             };
                             next_equipment += 1;
                             equipment.0.push(piece.clone());
                             tx.send((addr, Clientbound::AddEquipment(piece))).unwrap();
                         }
-                    })
+                    }
                 }
                 _ => (),
             }
-            println!("{message:?}");
         }
 
         tick.0 += 1;

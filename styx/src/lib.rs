@@ -23,6 +23,7 @@ use hephaestus::{
 #[derive(Debug, Clone)]
 pub enum Event {
     Click(Vec2),
+    RightClick(Vec2)
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -62,6 +63,20 @@ pub fn clicked(events: &[Event], area: Area) -> bool {
         })
         .any(|position| area.contains(position))
 }
+
+pub fn right_clicked(events: &[Event], area: Area) -> bool {
+    events
+        .iter()
+        .filter_map(|event| {
+            if let Event::RightClick(position) = event {
+                Some(*position)
+            } else {
+                None
+            }
+        })
+        .any(|position| area.contains(position))
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Constraint<T> {
@@ -178,6 +193,10 @@ impl Scene {
 
     pub fn text(&mut self, text: Text) {
         self.layers.last_mut().unwrap().text.push(text)
+    }
+
+    pub fn layer(&mut self) {
+        self.layers.push(Layer::default())
     }
 
     pub fn render(&self) -> Result<RenderedScene> {

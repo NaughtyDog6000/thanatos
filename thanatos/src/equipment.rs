@@ -1,13 +1,21 @@
 use glam::Vec4;
-use nyx::{equipment::{EquipmentId, EquipmentInventory, Equipped}, item::{Inventory, Item, ItemStack}, protocol::Clientbound};
+use nyx::{
+    equipment::{EquipmentId, EquipmentInventory, Equipped},
+    item::{Inventory, Item, ItemStack},
+    protocol::Clientbound,
+};
 use styx::{
-    components::{Clicked, Container, HGroup, Text},
+    components::{Clicked, Container, HAlign, HGroup, Text},
     Signal,
 };
 use tecs::SystemMut;
 
 use crate::{
-    colours::rarity_colour, event::Event, renderer::{Anchor, Ui}, window::Keyboard, World
+    colours::rarity_colour,
+    event::Event,
+    renderer::{Anchor, Ui},
+    window::Keyboard,
+    World,
 };
 
 #[derive(Default)]
@@ -53,14 +61,24 @@ impl SystemMut<Event> for EquipmentUi {
                 let signal = ui.signals.signal();
                 self.signals.push((equipable.id, signal));
 
-                view.add(Clicked {
-                    signal,
-                    child: Text {
-                        text: format!("{}", equipable.kind),
-                        font_size: 48.0,
+                let desc = HGroup::new(HAlign::Left, 8.0).add(Text {
+                    text: format!("{}", equipable.kind),
+                    font_size: 48.0,
+                    font: ui.font.clone(),
+                    colour,
+                });
+                let desc = equipable.passives.iter().fold(desc, |desc, passive| {
+                    desc.add(Text {
+                        text: passive.to_string(),
+                        font_size: 24.0,
                         font: ui.font.clone(),
                         colour,
-                    },
+                    })
+                });
+
+                view.add(Clicked {
+                    signal,
+                    child: desc,
                 })
             },
         );
@@ -75,13 +93,13 @@ impl SystemMut<Event> for EquipmentUi {
     }
 }
 
-fn net(world: &World, event: &Event) { 
+fn net(world: &World, event: &Event) {
     match event {
         Event::Recieved(Clientbound::AddEquipment(piece)) => {
             let mut equipment = world.get_mut::<EquipmentInventory>().unwrap();
             equipment.0.push(piece.clone());
         }
-        _ => ()
+        _ => (),
     }
 }
 
