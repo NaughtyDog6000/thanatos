@@ -1,5 +1,4 @@
 use std::{
-    borrow::{Borrow, BorrowMut},
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     io::ErrorKind,
@@ -12,9 +11,9 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use glam::Vec3;
 use nyx::{
     data,
-    equipment::{self, Equipment, EquipmentId, EquipmentInventory, Passive},
-    item::{Inventory, Item, ItemStack, LootTable, Rarity, RecipeOutput, RARITIES},
-    protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
+    equipment::{Equipment, EquipmentId, EquipmentInventory, Passive},
+    item::{Inventory, Item, ItemStack, LootTable, RecipeOutput, RARITIES},
+    protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS}, task::Proficiencies,
 };
 
 const FORCED_LATENCY: Duration = Duration::from_millis(0);
@@ -24,6 +23,7 @@ pub struct Client {
     position: Cell<Vec3>,
     inventory: RefCell<Inventory>,
     equipment: RefCell<EquipmentInventory>,
+    proficiencies: RefCell<Proficiencies>
 }
 
 fn handle_networking(
@@ -103,6 +103,7 @@ fn add_client(
             position: Cell::new(Vec3::ZERO),
             inventory: RefCell::new(Inventory::default()),
             equipment: RefCell::new(EquipmentInventory(Vec::new())),
+            proficiencies: RefCell::new(Proficiencies::default())
         },
     );
 
@@ -126,7 +127,7 @@ fn main() -> Result<()> {
     let tx = clientbound_tx;
 
     let recipes = data::recipes();
-    let nodes = data::nodes();
+    let nodes = data::nodes::get();
 
     loop {
         let start = Instant::now();
@@ -197,7 +198,9 @@ fn main() -> Result<()> {
                             .unwrap();
                         });
 
-                    let chances = recipe.rarity_chances(&rarities);
+                    let tags = recipe.output.tags();
+                    let rank_up = client.proficiencies.borrow().rank_up.get(&tags);
+                    let chances = recipe.rarity_chances(&rarities, rank_up);
                     let rarity = *RARITIES
                         .into_iter()
                         .zip(chances)
@@ -207,9 +210,9 @@ fn main() -> Result<()> {
                         .pick();
 
                     match recipe.output {
-                        RecipeOutput::Items(kind, quantity) => {
+                        RecipeOutput::Item(kind) => {
                             let item = Item { kind, rarity };
-                            inventory.add(ItemStack { item, quantity });
+                            inventory.add(ItemStack { item, quantity: 1 });
                             tx.send((
                                 addr,
                                 Clientbound::SetStack(ItemStack {

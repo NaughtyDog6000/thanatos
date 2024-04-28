@@ -2,7 +2,7 @@ use glam::{Vec2, Vec4};
 use nyx::{
     data,
     item::{Inventory, Item, ItemStack, Rarity, Recipe, RecipeOutput, RARITIES},
-    protocol::Serverbound,
+    protocol::Serverbound, task::Proficiencies,
 };
 use styx::{
     components::{
@@ -79,8 +79,8 @@ impl SystemMut<Event> for CraftUi {
                 }
 
                 let text = match recipe.output {
-                    RecipeOutput::Items(kind, quantity) => {
-                        format!("{kind} x {quantity}")
+                    RecipeOutput::Item(kind) => {
+                        format!("{kind}")
                     }
                     RecipeOutput::Equipment(equipment) => equipment.to_string(),
                 };
@@ -152,9 +152,7 @@ impl SystemMut<Event> for CraftUi {
                 .add(text("Output:", 48.0, ui.font.clone()))
                 .add({
                     let text = match recipe.output {
-                        RecipeOutput::Items(kind, quantity) => {
-                            format!("{kind} x {quantity}")
-                        }
+                        RecipeOutput::Item(kind) => kind.to_string(),
                         RecipeOutput::Equipment(equipment) => equipment.to_string(),
                     };
 
@@ -166,13 +164,17 @@ impl SystemMut<Event> for CraftUi {
                     }
                 })
                 .add({
+                    let tags = recipe.output.tags();
+                    let rank_up = world.get::<Proficiencies>().unwrap().rank_up.get(&tags);
                     let chances = recipe.rarity_chances(
                         &self
                             .inputs
                             .iter()
                             .map(|(rarity, _)| *rarity)
                             .collect::<Vec<_>>(),
+                        0.1
                     );
+
                     RARITIES.into_iter().zip(chances).fold(
                         VGroup::new(VAlign::Top, 16.0),
                         |chances, (rarity, chance)| {

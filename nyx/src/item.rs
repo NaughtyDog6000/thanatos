@@ -5,8 +5,16 @@ use rand::Rng;
 use crate::equipment::{EquipmentKind, Passive};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Tag {
+    Mining,
+    Smelting,
+    Weaponsmithing,
+    Alchemy,
+    Copper,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ItemKind {
-    Wood,
     CopperOre,
     CopperIngot,
     FireDamageReagent,
@@ -18,12 +26,21 @@ impl Display for ItemKind {
             f,
             "{}",
             match self {
-                Self::Wood => "Wood",
                 Self::CopperOre => "Copper Ore",
                 Self::CopperIngot => "Copper Ingot",
                 Self::FireDamageReagent => "Fire Damage Reagent",
             }
         )
+    }
+}
+
+impl ItemKind {
+    pub fn tags(&self) -> Vec<Tag> {
+        match self {
+            Self::CopperOre => vec![Tag::Mining, Tag::Copper],
+            Self::CopperIngot => vec![Tag::Smelting, Tag::Copper],
+            Self::FireDamageReagent => vec![Tag::Alchemy],
+        }
     }
 }
 
@@ -89,10 +106,19 @@ pub struct ItemStack {
     pub quantity: usize,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RecipeOutput {
-    Items(ItemKind, usize),
+    Item(ItemKind),
     Equipment(EquipmentKind),
+}
+
+impl RecipeOutput {
+    pub fn tags(&self) -> Vec<Tag> {
+        match self {
+            RecipeOutput::Item(item) => item.tags(),
+            RecipeOutput::Equipment(equipment) => equipment.tags(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -126,7 +152,8 @@ impl Recipe {
             })
     }
 
-    pub fn rarity_chances(&self, rarities: &[Rarity]) -> Vec<f32> {
+    pub fn rarity_chances(&self, rarities: &[Rarity], rank_up: f32) -> Vec<f32> {
+        let rank_up = rank_up.min(1.0);
         let total: f32 = self
             .inputs
             .iter()
@@ -142,17 +169,20 @@ impl Recipe {
                     .map(|((_, quantity), rarity)| {
                         let mut output = 0.0;
                         if query == *rarity {
-                            output += 0.8 * *quantity as f32
+                            output += 0.8 * (1.0 - rank_up)
                         }
                         if query == rarity.next() {
-                            output += 0.2 * *quantity as f32
+                            output += 0.2 * (1.0 - rank_up) + 0.8 * rank_up
                         }
-                        output
+                        if query == rarity.next().next() {
+                            output += 0.2 * rank_up
+                        }
+                        output * *quantity as f32
                     })
                     .sum::<f32>()
                     / total
             })
-            .collect()
+            .collect::<Vec<_>>()
     }
 }
 
@@ -170,7 +200,9 @@ impl Inventory {
     }
 
     pub fn remove(&mut self, stack: ItemStack) -> bool {
-        let Some(quantity) = self.0.get_mut(&stack.item) else { return false };
+        let Some(quantity) = self.0.get_mut(&stack.item) else {
+            return false;
+        };
 
         if *quantity == stack.quantity {
             self.0.remove(&stack.item);

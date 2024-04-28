@@ -25,7 +25,7 @@ use interact::Interactable;
 use net::Connection;
 use nyx::{
     data,
-    item::{Item, ItemStack},
+    item::{Item, ItemStack}, task::Proficiencies,
 };
 use player::{Health, Player};
 use renderer::{RenderObject, Renderer};
@@ -68,6 +68,7 @@ fn main() -> Result<()> {
         .register::<Player>()
         .register::<CopperOre>()
         .with_resource(State::Running)
+        .with_resource(Proficiencies::default())
         .with(Connection::add)
         .with_resource(assets)
         .with(window.add())

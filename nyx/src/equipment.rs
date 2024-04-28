@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
-use crate::item::Rarity;
+use crate::item::{Rarity, Tag};
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EquipmentKind {
     CopperSword,
 }
@@ -12,6 +12,14 @@ impl Display for EquipmentKind {
         write!(f, "{}", match self {
             Self::CopperSword => "Copper Sword"
         })
+    }
+}
+
+impl EquipmentKind {
+    pub fn tags(&self) -> Vec<Tag> {
+        match self {
+            Self::CopperSword => vec![Tag::Weaponsmithing, Tag::Copper]
+        }
     }
 }
 
