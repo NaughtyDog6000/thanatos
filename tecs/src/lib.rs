@@ -53,46 +53,7 @@ pub trait Archetype: Any {
 #[macro_export]
 macro_rules! impl_archetype {
     ($(pub )?struct $for:ident { $( pub $field:ident: $type:ty ),* $(,)?}) => {
-        /*
-        concat_idents::concat_idents!(for_ref = $for, Ref {
-            pub struct for_ref<'a> {
-                $($field: &'a $type,)*
-            }
-        });
-
-        concat_idents::concat_idents!(for_mut = $for, Mut {
-            pub struct for_mut<'a> {
-                $($field: &'a mut $type,)*
-            }
-        });
-*/
-
         impl tecs::Archetype for $for {
-            /*
-            concat_idents::concat_idents!(for_ref = $for, Ref {
-                type Ref<'a> = for_ref<'a>;
-
-                fn from_components<'a>(components: &'a std::collections::HashMap<std::any::TypeId, std::cell::RefCell<tecs::VecAny>>, indices: &[u32]) -> for_ref<'a> {
-                    let mut indices = indices.iter();
-
-                    for_ref {
-                        $($field: std::cell::Ref::map(components.get(&std::any::TypeId::of::<$type>()).unwrap().borrow(), |x| x.downcast_ref::<$type>().unwrap().get(*indices.next().unwrap() as usize).unwrap()),)*
-                    }
-                }
-            });
-            concat_idents::concat_idents!(for_mut = $for, Mut {
-                type Mut<'a> = for_mut<'a>;
-
-                fn from_components_mut<'a>(components: &'a std::collections::HashMap<std::any::TypeId, std::cell::RefCell<tecs::VecAny>>, indices: &[u32]) -> for_mut<'a> {
-                    let mut indices = indices.iter();
-
-                    for_mut {
-                        $($field: std::cell::RefMut::map(components.get(&std::any::TypeId::of::<$type>()).unwrap().borrow_mut(), |x| x.downcast_mut::<$type>().unwrap().get_mut(*indices.next().unwrap() as usize).unwrap()),)*
-                    }
-                }
-            });
-            */
-
             fn columns() -> Vec<std::any::TypeId> {
                 vec![$(std::any::TypeId::of::<$type>()),*]
             }
@@ -104,8 +65,6 @@ macro_rules! impl_archetype {
                     columns.next().unwrap().push::<$type>(self.$field);
                 )*
             }
-
-
         }
     };
 }
@@ -137,6 +96,7 @@ impl Column {
 pub struct Table {
     pub length: Cell<usize>,
     columns: Vec<(TypeId, RefCell<Column>)>,
+    empty: Vec<usize>,
 }
 
 impl Table {
@@ -148,6 +108,7 @@ impl Table {
                 .cloned()
                 .map(|ty| (ty, RefCell::new(Column::new(ty))))
                 .collect(),
+            empty: Vec::new(),
         }
     }
 
@@ -451,6 +412,42 @@ impl<E, T: Archetype> QueryOne<E> for Is<T> {
     }
 
     fn data<'a>(_: &[(TypeId, &'a Table)]) -> Self::Output<'a> {}
+}
+
+pub struct ColumnsOptional<'a, T> {
+    columns: Vec<Result<Ref<'a, [T]>, usize>>,
+}
+
+impl<'a, T> FromIterator<Result<Ref<'a, [T]>, usize>> for ColumnsOptional<'a, T> {
+    fn from_iter<I: IntoIterator<Item = Result<Ref<'a, [T]>, usize>>>(iter: I) -> Self {
+        Self {
+            columns: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<'a, T> ColumnsOptional<'a, T> {
+    pub fn iter(&self) -> impl Iterator<Item = Option<&T>> {
+        self.columns.iter().flat_map(|column| match column {
+            Ok(column) => column.iter().map(Some).collect::<Vec<Option<&T>>>(),
+            Err(size) => vec![None; *size],
+        })
+    }
+}
+
+impl<E, T: Archetype> Query<E> for Option<&'_ T> {
+    type Output<'a> = ColumnsOptional<'a, T>;
+
+    fn filter(_: &(TypeId, &Table)) -> bool {
+        true
+    }
+
+    fn data<'a>(tables: &[(TypeId, &'a Table)]) -> Self::Output<'a> {
+        tables
+            .iter()
+            .map(|(_, table)| table.column::<T>().ok_or_else(|| table.len()))
+            .collect()
+    }
 }
 
 impl<E> Query<E> for EntityId {

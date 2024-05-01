@@ -31,18 +31,30 @@ impl VecAny {
         }
     }
 
+    pub fn run<T: 'static, F: FnOnce(&mut Vec<T>)>(&mut self, f: F) {
+        if self.ty != TypeId::of::<T>() {
+            return;
+        }
+
+        let mut data: Vec<T> = match self.ptr {
+            Some(ptr) => unsafe { Vec::<T>::from_raw_parts(ptr.cast(), self.len, self.cap) },
+            None => Vec::<T>::new(),
+        };
+        f(&mut data);
+
+        let (ptr, len, cap) = data.into_raw_parts();
+        self.ptr = Some(ptr.cast());
+        self.len = len;
+        self.cap = cap;
+    }
+
     pub fn downcast_ref<T: 'static>(&self) -> Option<&[T]> {
         if self.ty != TypeId::of::<T>() {
             return None;
         }
 
         Some(match self.ptr {
-            Some(ptr) => unsafe {
-                std::slice::from_raw_parts(
-                    ptr.cast(),
-                    self.len,
-                )
-            },
+            Some(ptr) => unsafe { std::slice::from_raw_parts(ptr.cast(), self.len) },
             None => &[],
         })
     }
@@ -53,32 +65,13 @@ impl VecAny {
         }
 
         Some(match self.ptr {
-            Some(ptr) => unsafe {
-                std::slice::from_raw_parts_mut(
-                    ptr.cast(),
-                    self.len,
-                )
-            },
+            Some(ptr) => unsafe { std::slice::from_raw_parts_mut(ptr.cast(), self.len) },
             None => &mut [],
         })
     }
 
     pub fn push<T: 'static>(&mut self, item: T) {
-        if self.ty != TypeId::of::<T>() {
-            return;
-        }
-
-        let mut data: Vec<T> = match self.ptr {
-            Some(ptr) => unsafe { Vec::<T>::from_raw_parts(ptr.cast(), self.len, self.cap) },
-            None => Vec::<T>::new(),
-        };
-
-        data.push(item);
-
-        let (ptr, len, cap) = data.into_raw_parts();
-        self.ptr = Some(ptr.cast());
-        self.len = len;
-        self.cap = cap;
+        self.run(|data| data.push(item))
     }
 
     pub fn len(&self) -> usize {

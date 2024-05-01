@@ -1,21 +1,10 @@
-use glam::{Vec2, Vec3, Vec4};
-use nyx::{
-    item::{Inventory, ItemStack, LootTable},
-    protocol::Serverbound,
-};
-use rand::Rng;
-use styx::components::{self, Container, Offset, Text, VAlign, VGroup};
-use tecs::{utils::Name, EntityId, Is};
+use glam::Vec3;
+use nyx::protocol::Serverbound;
+use tecs::{EntityId, Is};
 
 use crate::{
-    collider::Collider,
-    interact::Interactable,
-    net::Connection,
-    player::Player,
-    renderer::{Anchor, Renderer, Ui},
-    transform::Transform,
-    window::Keyboard,
-    Timer, World,
+    collider::Collider, interact::Interactable, net::Connection, player::Player, renderer::Ui,
+    transform::Transform, Timer, World,
 };
 
 pub struct Gatherable {
