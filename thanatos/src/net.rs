@@ -8,7 +8,7 @@ use std::{
     net::UdpSocket,
     time::{Duration, Instant},
 };
-use tecs::{impl_archetype, Is, System};
+use tecs::{impl_archetype, EntityId, Is, System};
 use thanatos_macros::Archetype;
 
 use crate::{
@@ -47,11 +47,11 @@ impl Connection {
     }
 
     fn get(&mut self) -> Option<ClientboundBundle> {
-        let mut buffer = [0; 4096]; 
+        let mut buffer = [0; 4096];
         match self.socket.recv(&mut buffer) {
             Ok(_) => Some(bincode::deserialize(&buffer).unwrap()),
             Err(e) if e.kind() == ErrorKind::WouldBlock => None,
-            Err(e) => panic!("{e}")
+            Err(e) => panic!("{e}"),
         }
     }
 
@@ -99,7 +99,10 @@ impl Positions {
     }
 
     pub fn push(&mut self, position: Vec3) {
-        self.queue.push_back((Instant::now() + Duration::from_secs_f32(2.0 / TPS), position))
+        self.queue.push_back((
+            Instant::now() + Duration::from_secs_f32(2.0 / TPS),
+            position,
+        ))
     }
 
     pub fn get(&mut self) -> Option<Vec3> {
@@ -191,15 +194,18 @@ impl MovementSystem {
     }
 
     fn despawn(&self, world: &World, client_id: ClientId) {
-        let (mut transforms, client_ids, _) =
-            world.query::<(&mut Transform, &ClientId, Is<OtherPlayer>)>();
-        let mut client_ids = client_ids
-            .iter();
-        transforms.for_each(|transform| {
-            if *client_ids.next().unwrap() == client_id {
-                transform.translation = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-            };
-        })
+        let id = {
+            let (entities, client_ids, _) = world.query::<(EntityId, &ClientId, Is<OtherPlayer>)>();
+            entities
+                .iter()
+                .zip(client_ids.iter().collect::<Vec<_>>())
+                .find(|(_, id)| **id == client_id)
+                .map(|(entity, _)| *entity)
+        };
+
+        if let Some(id) = id {
+            world.despawn::<OtherPlayer>(id);
+        }
     }
 
     fn send_player_position(&self, world: &World) {
@@ -210,8 +216,7 @@ impl MovementSystem {
             return;
         }
         let tick = conn.tick;
-        conn.write(Serverbound::Move(position, tick))
-            .unwrap();
+        conn.write(Serverbound::Move(position, tick)).unwrap();
         self.positions.borrow_mut().insert(tick, position);
     }
 }

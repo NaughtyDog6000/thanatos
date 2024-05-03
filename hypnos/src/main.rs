@@ -13,7 +13,8 @@ use nyx::{
     data,
     equipment::{Equipment, EquipmentId, EquipmentInventory, Passive},
     item::{Inventory, Item, ItemStack, LootTable, RecipeOutput, RARITIES},
-    protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS}, task::Proficiencies,
+    protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS},
+    task::Proficiencies,
 };
 
 const FORCED_LATENCY: Duration = Duration::from_millis(0);
@@ -23,7 +24,7 @@ pub struct Client {
     position: Cell<Vec3>,
     inventory: RefCell<Inventory>,
     equipment: RefCell<EquipmentInventory>,
-    proficiencies: RefCell<Proficiencies>
+    proficiencies: RefCell<Proficiencies>,
 }
 
 fn handle_networking(
@@ -36,6 +37,8 @@ fn handle_networking(
     println!("Listening");
     let mut messages: HashMap<SocketAddr, Vec<Clientbound>> = HashMap::new();
     let mut to_receive = VecDeque::new();
+    let mut last_seen: HashMap<SocketAddr, Instant> = HashMap::new();
+
     loop {
         if let Ok((addr, message)) = clientbound_rx.try_recv() {
             match messages.get_mut(&addr) {
@@ -67,6 +70,16 @@ fn handle_networking(
             continue;
         };
         println!("{n} from {addr:?}");
+        last_seen.insert(addr, Instant::now());
+
+        last_seen.clone().iter().for_each(|(addr, seen)| {
+            if seen.elapsed() > Duration::from_secs(10) {
+                serverbound_tx
+                    .send((*addr, Serverbound::Disconnect))
+                    .unwrap();
+                last_seen.remove(addr);
+            }
+        });
 
         to_receive.push_back((Instant::now(), (addr, message)));
         while let Some((time, _)) = to_receive.get(0) {
@@ -103,7 +116,7 @@ fn add_client(
             position: Cell::new(Vec3::ZERO),
             inventory: RefCell::new(Inventory::default()),
             equipment: RefCell::new(EquipmentInventory(Vec::new())),
-            proficiencies: RefCell::new(Proficiencies::default())
+            proficiencies: RefCell::new(Proficiencies::default()),
         },
     );
 
@@ -269,9 +282,24 @@ fn main() -> Result<()> {
                     };
                     client.inventory.borrow_mut().set(stack);
                     tx.send((addr, Clientbound::SetStack(stack))).unwrap();
-                    tx.send((addr, Clientbound::SetPassives(id, equipment.passives.clone()))).unwrap();
+                    tx.send((
+                        addr,
+                        Clientbound::SetPassives(id, equipment.passives.clone()),
+                    ))
+                    .unwrap();
                 }
-                _ => (),
+                Serverbound::Disconnect => {
+                    clients
+                        .iter()
+                        .filter(|(other_addr, _)| **other_addr != addr)
+                        .for_each(|(other_addr, _)| {
+                            tx.send((*other_addr, Clientbound::Despawn(client.id)))
+                                .unwrap();
+                        });
+                    clients.remove(&addr);
+                }
+
+                Serverbound::AuthRequest => (),
             }
         }
 

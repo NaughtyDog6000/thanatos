@@ -20,12 +20,13 @@ use assets::{Material, Mesh};
 use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::Gatherable;
-use glam::{Vec3, Vec4};
+use glam::{Quat, Vec3, Vec4};
 use interact::Interactable;
 use net::Connection;
 use nyx::{
     data,
-    item::{Item, ItemStack}, task::Proficiencies,
+    item::{Item, ItemStack},
+    task::Proficiencies,
 };
 use player::{Health, Player};
 use renderer::{RenderObject, Renderer};
@@ -46,6 +47,40 @@ struct CopperOre {
     pub name: Name,
 }
 
+impl CopperOre {
+    pub fn new(world: &World) -> Result<Self> {
+        let mut assets = world.get_mut::<assets::Manager>().unwrap();
+
+        let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb")?);
+        let orange = assets.add_material(Material {
+            colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
+        });
+
+        Ok(CopperOre {
+            render: RenderObject {
+                mesh: copper_ore,
+                material: orange,
+            },
+            transform: Transform::IDENTITY,
+            gatherable: Gatherable {
+                collider: Collider {
+                    kind: ColliderKind::Sphere(5.0),
+                    position: Vec3::ZERO,
+                },
+                loot: 0,
+                timer: Timer::new(Duration::from_secs(1)),
+            },
+            interactable: Interactable::new(&world, "Gather Copper Ore"),
+            name: Name(String::from("Copper Ore")),
+        })
+    }
+
+    pub fn with_transform(mut self, transform: Transform) -> Self {
+        self.transform = transform;
+        self
+    }
+}
+
 pub type World = tecs::World<Event>;
 
 fn main() -> Result<()> {
@@ -58,11 +93,7 @@ fn main() -> Result<()> {
 
     let mut assets = assets::Manager::new();
     let cube = assets.add_mesh(Mesh::load("assets/meshes/cube.glb")?);
-    let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb")?);
     let white = assets.add_material(Material { colour: Vec4::ONE });
-    let orange = assets.add_material(Material {
-        colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
-    });
 
     let mut world = World::new()
         .register::<Player>()
@@ -99,29 +130,17 @@ fn main() -> Result<()> {
     world.spawn(Player {
         render: RenderObject {
             mesh: cube,
-            material: orange,
+            material: white,
         },
         transform,
         health: Health(100.0),
     });
 
-    world.spawn(CopperOre {
-        render: RenderObject {
-            mesh: copper_ore,
-            material: orange,
-        },
-        transform: Transform::IDENTITY,
-        gatherable: Gatherable {
-            collider: Collider {
-                kind: ColliderKind::Sphere(5.0),
-                position: Vec3::ZERO,
-            },
-            loot: 0,
-            timer: Timer::new(Duration::from_secs(1)),
-        },
-        interactable: Interactable::new(&world, "Gather Copper Ore"),
-        name: Name(String::from("Copper Ore")),
-    });
+    world.spawn(CopperOre::new(&world)?.with_transform(Transform {
+        translation: Vec3::ONE,
+        rotation: Quat::IDENTITY,
+        scale: Vec3::new(3.0, 1.0, 2.0),
+    }));
 
     loop {
         if let State::Stopped = *world.get::<State>().unwrap() {

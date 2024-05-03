@@ -31,7 +31,7 @@ impl VecAny {
         }
     }
 
-    pub fn run<T: 'static, F: FnOnce(&mut Vec<T>)>(&mut self, f: F) {
+    pub fn run<T: 'static>(&mut self, f: impl FnOnce(&mut Vec<T>)) {
         if self.ty != TypeId::of::<T>() {
             return;
         }
