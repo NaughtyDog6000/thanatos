@@ -1,5 +1,6 @@
 use glam::Vec3;
 use nyx::protocol::Serverbound;
+use serde::{Deserialize, Serialize};
 use tecs::{EntityId, Is};
 
 use crate::{
@@ -7,6 +8,7 @@ use crate::{
     transform::Transform, Timer, World,
 };
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Gatherable {
     pub collider: Collider,
     pub loot: usize,
@@ -49,7 +51,7 @@ pub fn tick(world: &World) {
     interactable.priority = 0.0;
 
     let ui = world.get::<Ui>().unwrap();
-    if ui.signals.get(interactable.signal) {
+    if interactable.signal.map(|signal| ui.signals.get(signal)).unwrap_or_default() {
         let mut gatherable = world.get_component_mut::<Gatherable>(entity).unwrap();
         let mut conn = world.get_mut::<Connection>().unwrap();
         conn.write(Serverbound::Gather(gatherable.gather()))

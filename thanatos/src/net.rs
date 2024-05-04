@@ -8,8 +8,7 @@ use std::{
     net::UdpSocket,
     time::{Duration, Instant},
 };
-use tecs::{impl_archetype, EntityId, Is, System};
-use thanatos_macros::Archetype;
+use tecs::{prelude::*, EntityId, Is, System};
 
 use crate::{
     assets::{MaterialId, MeshId},
@@ -87,6 +86,7 @@ impl Connection {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Positions {
     queue: VecDeque<(Instant, Vec3)>,
 }
@@ -125,7 +125,7 @@ impl Positions {
     }
 }
 
-#[derive(Archetype)]
+#[derive(Archetype, Clone)]
 pub struct OtherPlayer {
     pub client_id: ClientId,
     pub render: RenderObject,

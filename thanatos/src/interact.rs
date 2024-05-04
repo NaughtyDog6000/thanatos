@@ -1,12 +1,22 @@
 use glam::{Vec2, Vec4};
-use styx::{components::{Container, Offset, Text, VAlign, VGroup}, Signal};
+use serde::{Deserialize, Serialize};
+use styx::{
+    components::{Container, Offset, Text, VAlign, VGroup},
+    Signal,
+};
 
-use crate::{renderer::{Anchor, Ui}, window::{Keybind, Keyboard}, World};
+use crate::{
+    renderer::{Anchor, Ui},
+    window::{Keybind, Keyboard},
+    World,
+};
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Interactable {
     pub priority: f32,
     pub text: String,
-    pub signal: Signal,
+    #[serde(skip)]
+    pub signal: Option<Signal>,
 }
 
 impl Interactable {
@@ -16,15 +26,24 @@ impl Interactable {
         Interactable {
             priority: f32::MAX,
             text: text.to_string(),
-            signal
+            signal: Some(signal),
         }
     }
 }
 
 fn interact_ui(world: &World) {
-    let interactables = world.query::<&Interactable>();
-    let Some(interactable) = interactables.iter().min_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap()) else { return };
-    if interactable.priority == f32::MAX { return; }
+    let mut interactables = world.query::<&mut Interactable>();
+    let Some((index, _)) = interactables
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| a.priority.partial_cmp(&b.priority).unwrap())
+    else {
+        return;
+    };
+    let interactable = interactables.get_mut(index).unwrap();
+    if interactable.priority == f32::MAX {
+        return;
+    }
 
     let mut ui = world.get_mut::<Ui>().unwrap();
     let font = ui.font.clone();
@@ -61,7 +80,10 @@ fn interact_ui(world: &World) {
 
     let keyboard = world.get::<Keyboard>().unwrap();
     if keyboard.is_down(Keybind::Interact) {
-        ui.signals.set(interactable.signal); 
+        if interactable.signal.is_none() {
+            interactable.signal = Some(ui.signals.signal())
+        }
+        ui.signals.set(interactable.signal.unwrap());
     }
 }
 

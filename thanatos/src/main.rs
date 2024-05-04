@@ -23,22 +23,16 @@ use gather::Gatherable;
 use glam::{Quat, Vec3, Vec4};
 use interact::Interactable;
 use net::Connection;
-use nyx::{
-    data,
-    item::{Item, ItemStack},
-    task::Proficiencies,
-};
+use nyx::task::Proficiencies;
 use player::{Health, Player};
 use renderer::{RenderObject, Renderer};
 use std::time::Duration;
-use tecs::{
-    impl_archetype,
-    utils::{Clock, Name, State, Timer},
-};
-use thanatos_macros::Archetype;
+use tecs::prelude::*;
+use tecs::utils::{Clock, Name, State, Timer};
 use transform::Transform;
+use serde::{Serialize, Deserialize};
 
-#[derive(Archetype)]
+#[derive(Archetype, Clone, Serialize, Deserialize)]
 struct CopperOre {
     pub render: RenderObject,
     pub transform: Transform,
@@ -127,7 +121,7 @@ fn main() -> Result<()> {
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
 
-    world.spawn(Player {
+    let player = world.spawn(Player {
         render: RenderObject {
             mesh: cube,
             material: white,
@@ -135,6 +129,11 @@ fn main() -> Result<()> {
         transform,
         health: Health(100.0),
     });
+
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut serializer = serde_json::Serializer::pretty(&mut buffer);
+    world.serialize::<Player, _>(player, &mut serializer).unwrap();
+    println!("{}", String::from_utf8(buffer).unwrap());
 
     world.spawn(CopperOre::new(&world)?.with_transform(Transform {
         translation: Vec3::ONE,

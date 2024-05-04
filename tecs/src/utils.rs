@@ -1,8 +1,12 @@
 use std::{fmt::Display, time::{Duration, Instant}};
 
+use serde::{Deserialize, Serialize};
+
 use crate::World;
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Timer {
+    #[serde(skip)]
     start: Option<Instant>,
     pub duration: Duration,
 }
@@ -58,7 +62,7 @@ pub enum State {
     Running,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Name(pub String);
 
 impl Display for Name {

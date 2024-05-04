@@ -2,17 +2,19 @@ use crate::{
     camera::Camera, renderer::RenderObject, transform::Transform, window::Keyboard, Clock, World,
 };
 use glam::{Quat, Vec3};
-use tecs::{impl_archetype, Is};
-use thanatos_macros::Archetype;
+use serde::{Deserialize, Serialize};
+use tecs::prelude::*;
 
 const SPEED: f32 = 5.0;
 
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Health(pub f32);
 
-#[derive(Archetype)]
+#[derive(Archetype, Clone, Serialize)]
 pub struct Player {
     pub render: RenderObject,
     pub transform: Transform,
+    #[serde(skip)]
     pub health: Health,
 }
 

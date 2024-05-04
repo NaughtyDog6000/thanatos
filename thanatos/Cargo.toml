@@ -6,7 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thanatos_macros = { path = "../thanatos_macros" }
 gltf = { path = "../gltf" }
 tecs = { path = "../tecs" }
 hephaestus = { path = "../hephaestus" }
@@ -23,3 +22,5 @@ nyx = { version = "0.1.0", path = "../nyx" }
 bincode = "1.3.3"
 styx = { version = "0.1.0", path = "../styx" }
 assets = { version = "0.1.0", path = "../assets" }
+serde = "1.0.200"
+serde_json = "1.0.116"

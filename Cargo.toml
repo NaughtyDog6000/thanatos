@@ -8,6 +8,6 @@ members = [
     "hypnos", 
     "styx", 
     "tecs",
+    "tecs/tecs_derive",
     "thanatos",
-    "thanatos_macros"
 ]

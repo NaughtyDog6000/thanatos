@@ -1,10 +1,12 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(vec_into_raw_parts)]
 
+pub mod prelude;
 pub mod utils;
 mod vecany;
 
-pub use vecany::VecAny;
+use serde::{Deserialize, Serialize, Serializer};
+use vecany::VecAny;
 
 use std::{
     any::{Any, TypeId},
@@ -45,15 +47,27 @@ impl<E, T: SystemMut<E>> System<E> for RefCell<T> {
     }
 }
 
-pub trait Archetype: Any {
+pub trait Archetype: Any + Clone {
     fn columns() -> Vec<TypeId>;
     fn add(self, table: &Table);
     fn remove(table: &Table, row: RowIndex);
+    fn get(table: &Table, row: RowIndex) -> Self;
 }
+
+pub trait ArchetypeSerialize: Archetype + Serialize {
+    fn serialize<S: Serializer>(
+        table: &Table,
+        row: RowIndex,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        Self::get(table, row).serialize(serializer)
+    }
+}
+impl<T: Archetype + Serialize> ArchetypeSerialize for T {}
 
 #[macro_export]
 macro_rules! impl_archetype {
-    ($(pub )?struct $for:ident { $( pub $field:ident: $type:ty ),* $(,)?}) => {
+    ($for:ident $($field:ident $type:ty)*) => {
         impl tecs::Archetype for $for {
             fn columns() -> Vec<std::any::TypeId> {
                 vec![$(std::any::TypeId::of::<$type>()),*]
@@ -73,6 +87,13 @@ macro_rules! impl_archetype {
                 $(
                     columns.next().unwrap().data.run::<$type>(|data| { data.swap_remove(row.0 as usize); });
                 )*
+            }
+
+            fn get(table: &tecs::Table, row: tecs::RowIndex) -> Self {
+                let mut columns = table.columns();
+                Self {
+                    $($field: columns.next().unwrap().get::<$type>(row).unwrap().clone()),*
+                }
             }
         }
     };
@@ -105,10 +126,10 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn new(columns: &[TypeId]) -> Self {
+    pub fn new<T: Archetype>() -> Self {
         Self {
             length: Cell::new(0),
-            columns: columns
+            columns: T::columns()
                 .iter()
                 .cloned()
                 .map(|ty| (ty, RefCell::new(Column::new(ty))))
@@ -118,6 +139,10 @@ impl Table {
 
     pub fn columns_mut(&self) -> impl Iterator<Item = RefMut<'_, Column>> {
         self.columns.iter().map(|(_, column)| column.borrow_mut())
+    }
+
+    pub fn columns(&self) -> impl Iterator<Item = Ref<'_, Column>> {
+        self.columns.iter().map(|(_, column)| column.borrow())
     }
 
     pub fn has_column<T: 'static>(&self) -> bool {
@@ -227,6 +252,20 @@ impl<'a, T> ColumnsMut<'a, T> {
         self.columns
             .first_mut()
             .and_then(|column| column.first_mut())
+    }
+
+    pub fn get_mut(&mut self, mut index: usize) -> Option<&mut T> {
+        self.columns
+            .iter_mut()
+            .flat_map(|column| column.deref_mut())
+            .find(|_| {
+                if index == 0 {
+                    true
+                } else {
+                    index -= 1;
+                    false
+                }
+            })
     }
 }
 
@@ -562,8 +601,7 @@ impl<E> World<E> {
     }
 
     pub fn register<T: Archetype>(mut self) -> Self {
-        self.archetypes
-            .insert(TypeId::of::<T>(), Table::new(&T::columns()));
+        self.archetypes.insert(TypeId::of::<T>(), Table::new::<T>());
         self
     }
 
@@ -600,8 +638,22 @@ impl<E> World<E> {
             .values_mut()
             .find(|(t, r)| t == &table_id && r.0 == table.len() as u32)
             .map(|(_, r)| *r = row);
+    }
 
-        println!("{:?}", self.entities);
+    pub fn serialize<T: ArchetypeSerialize, S: Serializer>(
+        &self,
+        entity: EntityId,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let entities = self.entities.borrow();
+        let (table_id, row) = entities.get(&entity).unwrap();
+
+        if *table_id != TypeId::of::<T>() {
+            panic!("Serialize archetype mismatch")
+        }
+
+        let table = self.archetypes.get(&table_id).unwrap();
+        <T as ArchetypeSerialize>::serialize(table, *row, serializer)
     }
 
     pub fn query<Q: Query<E>>(&self) -> Q::Output<'_> {

@@ -25,6 +25,7 @@ use hephaestus::{
     Format, ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, SampleCountFlags, VkResult,
 };
 use log::info;
+use serde::{Deserialize, Serialize};
 use styx::{components, Element, Font, FontSettings, Signals};
 use tecs::EntityId;
 use winit::event::MouseButton;
@@ -55,6 +56,7 @@ impl Drop for Frame {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct RenderObject {
     pub mesh: MeshId,
     pub material: MaterialId,

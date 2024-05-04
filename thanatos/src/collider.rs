@@ -1,4 +1,5 @@
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Ray {
@@ -19,13 +20,13 @@ impl Ray {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ColliderKind {
     Sphere(f32),
     Aabb(Vec3),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Collider {
     pub kind: ColliderKind,
     pub position: Vec3,

@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use glam::{Vec3, Vec4};
 use gltf::Glb;
+use serde::{Deserialize, Serialize};
 
 use crate::renderer::{Renderer, Vertex};
 
@@ -58,9 +59,9 @@ pub struct Material {
     pub colour: Vec4,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct MeshId(usize);
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct MaterialId(usize);
 
 #[derive(Default)]
