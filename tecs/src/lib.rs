@@ -2,10 +2,11 @@
 #![feature(vec_into_raw_parts)]
 
 pub mod prelude;
+pub mod scene;
 pub mod utils;
 mod vecany;
 
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use vecany::VecAny;
 
 use std::{
@@ -47,56 +48,23 @@ impl<E, T: SystemMut<E>> System<E> for RefCell<T> {
     }
 }
 
-pub trait Archetype: Any + Clone {
+pub trait Archetype: Any {
     fn columns() -> Vec<TypeId>;
     fn add(self, table: &Table);
     fn remove(table: &Table, row: RowIndex);
-    fn get(table: &Table, row: RowIndex) -> Self;
-}
+    fn get(table: &Table, row: RowIndex) -> Self
+    where
+        Self: Clone;
 
-pub trait ArchetypeSerialize: Archetype + Serialize {
-    fn serialize<S: Serializer>(
+    fn get_serialize(
         table: &Table,
         row: RowIndex,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        Self::get(table, row).serialize(serializer)
+    ) -> Box<dyn erased_serde::Serialize>
+    where
+        Self: Serialize + Clone,
+    {
+        Box::new(Self::get(table, row)) as Box<dyn erased_serde::Serialize>
     }
-}
-impl<T: Archetype + Serialize> ArchetypeSerialize for T {}
-
-#[macro_export]
-macro_rules! impl_archetype {
-    ($for:ident $($field:ident $type:ty)*) => {
-        impl tecs::Archetype for $for {
-            fn columns() -> Vec<std::any::TypeId> {
-                vec![$(std::any::TypeId::of::<$type>()),*]
-            }
-
-            fn add(self, table: &tecs::Table) {
-                table.length.set(table.length.get() + 1);
-                let mut columns = table.columns_mut();
-                $(
-                    columns.next().unwrap().data.push::<$type>(self.$field);
-                )*
-            }
-
-            fn remove(table: &tecs::Table, row: tecs::RowIndex) {
-                table.length.set(table.length.get() - 1);
-                let mut columns = table.columns_mut();
-                $(
-                    columns.next().unwrap().data.run::<$type>(|data| { data.swap_remove(row.0 as usize); });
-                )*
-            }
-
-            fn get(table: &tecs::Table, row: tecs::RowIndex) -> Self {
-                let mut columns = table.columns();
-                Self {
-                    $($field: columns.next().unwrap().get::<$type>(row).unwrap().clone()),*
-                }
-            }
-        }
-    };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,10 +91,13 @@ impl Column {
 pub struct Table {
     pub length: Cell<usize>,
     columns: Vec<(TypeId, RefCell<Column>)>,
+    serialize: Option<
+        fn(&Self, RowIndex) -> Box<dyn erased_serde::Serialize>,
+    >,
 }
 
 impl Table {
-    pub fn new<T: Archetype>() -> Self {
+    pub fn new_unsaved<T: Archetype>() -> Self {
         Self {
             length: Cell::new(0),
             columns: T::columns()
@@ -134,6 +105,19 @@ impl Table {
                 .cloned()
                 .map(|ty| (ty, RefCell::new(Column::new(ty))))
                 .collect(),
+            serialize: None,
+        }
+    }
+
+    pub fn new<T: Archetype + Serialize + Clone>() -> Self {
+        Self {
+            length: Cell::new(0),
+            columns: T::columns()
+                .iter()
+                .cloned()
+                .map(|ty| (ty, RefCell::new(Column::new(ty))))
+                .collect(),
+            serialize: Some(<T as Archetype>::get_serialize),
         }
     }
 
@@ -600,8 +584,13 @@ impl<E> World<E> {
         self
     }
 
-    pub fn register<T: Archetype>(mut self) -> Self {
+    pub fn register<T: Archetype + Serialize + Clone>(mut self) -> Self {
         self.archetypes.insert(TypeId::of::<T>(), Table::new::<T>());
+        self
+    }
+
+    pub fn register_unsaved<T: Archetype>(mut self) -> Self {
+        self.archetypes.insert(TypeId::of::<T>(), Table::new_unsaved::<T>());
         self
     }
 
@@ -638,22 +627,6 @@ impl<E> World<E> {
             .values_mut()
             .find(|(t, r)| t == &table_id && r.0 == table.len() as u32)
             .map(|(_, r)| *r = row);
-    }
-
-    pub fn serialize<T: ArchetypeSerialize, S: Serializer>(
-        &self,
-        entity: EntityId,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        let entities = self.entities.borrow();
-        let (table_id, row) = entities.get(&entity).unwrap();
-
-        if *table_id != TypeId::of::<T>() {
-            panic!("Serialize archetype mismatch")
-        }
-
-        let table = self.archetypes.get(&table_id).unwrap();
-        <T as ArchetypeSerialize>::serialize(table, *row, serializer)
     }
 
     pub fn query<Q: Query<E>>(&self) -> Q::Output<'_> {

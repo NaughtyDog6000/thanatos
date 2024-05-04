@@ -26,6 +26,7 @@ use net::Connection;
 use nyx::task::Proficiencies;
 use player::{Health, Player};
 use renderer::{RenderObject, Renderer};
+use tecs::scene::Scene;
 use std::time::Duration;
 use tecs::prelude::*;
 use tecs::utils::{Clock, Name, State, Timer};
@@ -128,18 +129,22 @@ fn main() -> Result<()> {
         },
         transform,
         health: Health(100.0),
-    });
+    }); 
 
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut serializer = serde_json::Serializer::pretty(&mut buffer);
-    world.serialize::<Player, _>(player, &mut serializer).unwrap();
-    println!("{}", String::from_utf8(buffer).unwrap());
-
-    world.spawn(CopperOre::new(&world)?.with_transform(Transform {
+    let copper_ore = world.spawn(CopperOre::new(&world)?.with_transform(Transform {
         translation: Vec3::ONE,
         rotation: Quat::IDENTITY,
         scale: Vec3::new(3.0, 1.0, 2.0),
     }));
+
+    let mut scene = Scene::default();
+    scene.from_world(&world);
+
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut serializer = serde_json::Serializer::pretty(&mut buffer);
+    scene.save(&world, &mut serializer).unwrap();
+    println!("{}", String::from_utf8(buffer).unwrap());
+
 
     loop {
         if let State::Stopped = *world.get::<State>().unwrap() {

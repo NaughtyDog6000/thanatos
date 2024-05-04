@@ -250,7 +250,7 @@ impl System<Event> for MovementSystem {
 
 pub fn add(mesh: MeshId, material: MaterialId) -> impl FnOnce(World) -> World {
     move |world| {
-        world.register::<OtherPlayer>().with_system(MovementSystem {
+        world.register_unsaved::<OtherPlayer>().with_system(MovementSystem {
             mesh,
             material,
             positions: RefCell::new(HashMap::new()),

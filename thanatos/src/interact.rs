@@ -13,6 +13,7 @@ use crate::{
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Interactable {
+    #[serde(skip)]
     pub priority: f32,
     pub text: String,
     #[serde(skip)]
