@@ -172,7 +172,7 @@ impl SystemMut<Event> for CraftUi {
                             .iter()
                             .map(|(rarity, _)| *rarity)
                             .collect::<Vec<_>>(),
-                        0.1
+                        rank_up
                     );
 
                     RARITIES.into_iter().zip(chances).fold(

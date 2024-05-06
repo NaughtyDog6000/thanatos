@@ -24,7 +24,7 @@ use glam::{Vec3, Vec4};
 use interact::Interactable;
 use net::Connection;
 use nyx::task::Proficiencies;
-use player::{Health, Player};
+use player::Player;
 use renderer::{RenderObject, Renderer};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -81,7 +81,7 @@ fn main() -> Result<()> {
     let renderer = Renderer::new(&window)?;
     let camera = Camera::new(&window);
 
-    let mut world = World::new()
+    let world = World::new()
         .register::<Player>()
         .register::<CopperOre>()
         .with_resource(State::Running)

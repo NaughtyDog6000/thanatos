@@ -246,7 +246,7 @@ impl System<Event> for MovementSystem {
     }
 }
 
-pub fn add(mut world: World) -> World {
+pub fn add(world: World) -> World {
     world
         .register_unsaved::<OtherPlayer>()
         .with_system(MovementSystem {
