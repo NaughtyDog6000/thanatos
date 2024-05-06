@@ -23,12 +23,13 @@ pub fn derive_answer_fn(input: TokenStream) -> TokenStream {
                 vec![#(std::any::TypeId::of::<#types>()),*]
             }
 
-            fn add(self, table: &tecs::Table) {
+            fn add(self, table: &tecs::Table) -> tecs::RowIndex {
                 table.length.set(table.length.get() + 1);
                 let mut columns = table.columns_mut();
                 #(
                     columns.next().unwrap().data.push::<#types>(self.#fields);
                 )*
+                tecs::RowIndex(table.length.get() as u32 - 1)
             }
 
             fn remove(table: &tecs::Table, row: tecs::RowIndex) {

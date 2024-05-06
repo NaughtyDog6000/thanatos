@@ -26,12 +26,12 @@ use net::Connection;
 use nyx::task::Proficiencies;
 use player::{Health, Player};
 use renderer::{RenderObject, Renderer};
-use tecs::scene::Scene;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tecs::prelude::*;
+use tecs::scene::Scene;
 use tecs::utils::{Clock, Name, State, Timer};
 use transform::Transform;
-use serde::{Serialize, Deserialize};
 
 #[derive(Archetype, Clone, Serialize, Deserialize)]
 struct CopperOre {
@@ -122,6 +122,7 @@ fn main() -> Result<()> {
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
 
+    /*
     let player = world.spawn(Player {
         render: RenderObject {
             mesh: cube,
@@ -129,7 +130,7 @@ fn main() -> Result<()> {
         },
         transform,
         health: Health(100.0),
-    }); 
+    });
 
     let copper_ore = world.spawn(CopperOre::new(&world)?.with_transform(Transform {
         translation: Vec3::ONE,
@@ -143,8 +144,23 @@ fn main() -> Result<()> {
     let mut buffer: Vec<u8> = Vec::new();
     let mut serializer = serde_json::Serializer::pretty(&mut buffer);
     scene.save(&world, &mut serializer).unwrap();
-    println!("{}", String::from_utf8(buffer).unwrap());
+    std::fs::write("assets/scenes/test.scene", buffer).unwrap();
+    */
+    {
+        let buffer = std::fs::read("assets/scenes/test.scene").unwrap();
 
+        Scene::load(&world, &mut serde_json::Deserializer::from_slice(&buffer));
+    }
+
+    {
+        let mut scene = Scene::default();
+        scene.from_world(&world);
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut serializer = serde_json::Serializer::pretty(&mut buffer);
+        scene.save(&world, &mut serializer).unwrap();
+        println!("{}", String::from_utf8(buffer).unwrap());
+    }
 
     loop {
         if let State::Stopped = *world.get::<State>().unwrap() {

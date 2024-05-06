@@ -6,7 +6,10 @@ pub mod scene;
 pub mod utils;
 mod vecany;
 
-use serde::{Serialize, Serializer};
+use serde::{
+    de::{DeserializeSeed, Visitor},
+    Deserialize, Serialize, Serializer,
+};
 use vecany::VecAny;
 
 use std::{
@@ -50,20 +53,38 @@ impl<E, T: SystemMut<E>> System<E> for RefCell<T> {
 
 pub trait Archetype: Any {
     fn columns() -> Vec<TypeId>;
-    fn add(self, table: &Table);
+    fn add(self, table: &Table) -> RowIndex;
     fn remove(table: &Table, row: RowIndex);
     fn get(table: &Table, row: RowIndex) -> Self
     where
         Self: Clone;
 
-    fn get_serialize(
-        table: &Table,
-        row: RowIndex,
-    ) -> Box<dyn erased_serde::Serialize>
+    fn serialize(table: &Table, row: RowIndex) -> Box<dyn erased_serde::Serialize>
     where
         Self: Serialize + Clone,
     {
         Box::new(Self::get(table, row)) as Box<dyn erased_serde::Serialize>
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DeserializeArchetype<'a> {
+    table: &'a Table,
+    func: fn(
+        &Table,
+        &mut dyn erased_serde::Deserializer<'_>,
+    ) -> Result<RowIndex, erased_serde::Error>,
+}
+
+impl<'de> DeserializeSeed<'de> for DeserializeArchetype<'de> {
+    type Value = RowIndex;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut deserializer = <dyn erased_serde::Deserializer>::erase(deserializer);
+        Ok((self.func)(self.table, &mut deserializer).unwrap())
     }
 }
 
@@ -91,8 +112,9 @@ impl Column {
 pub struct Table {
     pub length: Cell<usize>,
     columns: Vec<(TypeId, RefCell<Column>)>,
-    serialize: Option<
-        fn(&Self, RowIndex) -> Box<dyn erased_serde::Serialize>,
+    pub(crate) serialize: Option<fn(&Self, RowIndex) -> Box<dyn erased_serde::Serialize>>,
+    pub(crate) deserialize: Option<
+        fn(&Self, &mut dyn erased_serde::Deserializer<'_>) -> Result<RowIndex, erased_serde::Error>,
     >,
 }
 
@@ -106,10 +128,11 @@ impl Table {
                 .map(|ty| (ty, RefCell::new(Column::new(ty))))
                 .collect(),
             serialize: None,
+            deserialize: None,
         }
     }
 
-    pub fn new<T: Archetype + Serialize + Clone>() -> Self {
+    pub fn new<T: Archetype + Serialize + for<'a> Deserialize<'a> + Clone>() -> Self {
         Self {
             length: Cell::new(0),
             columns: T::columns()
@@ -117,7 +140,12 @@ impl Table {
                 .cloned()
                 .map(|ty| (ty, RefCell::new(Column::new(ty))))
                 .collect(),
-            serialize: Some(<T as Archetype>::get_serialize),
+            serialize: Some(<T as Archetype>::serialize),
+            deserialize: Some(
+                |table: &Table, deserializer: &mut dyn erased_serde::Deserializer<'_>| {
+                    <T as Deserialize>::deserialize(deserializer).map(|entity| entity.add(table))
+                },
+            ),
         }
     }
 
@@ -584,13 +612,14 @@ impl<E> World<E> {
         self
     }
 
-    pub fn register<T: Archetype + Serialize + Clone>(mut self) -> Self {
+    pub fn register<T: Archetype + Serialize + for<'a> Deserialize<'a> + Clone>(mut self) -> Self {
         self.archetypes.insert(TypeId::of::<T>(), Table::new::<T>());
         self
     }
 
     pub fn register_unsaved<T: Archetype>(mut self) -> Self {
-        self.archetypes.insert(TypeId::of::<T>(), Table::new_unsaved::<T>());
+        self.archetypes
+            .insert(TypeId::of::<T>(), Table::new_unsaved::<T>());
         self
     }
 

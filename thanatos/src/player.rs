@@ -10,7 +10,13 @@ const SPEED: f32 = 5.0;
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct Health(pub f32);
 
-#[derive(Archetype, Clone, Serialize)]
+impl Default for Health {
+    fn default() -> Self {
+        Self(100.0)
+    }
+}
+
+#[derive(Archetype, Clone, Serialize, Deserialize)]
 pub struct Player {
     pub render: RenderObject,
     pub transform: Transform,

@@ -1,0 +1,77 @@
+{
+  "307190193128039230": [
+    {
+      "render": {
+        "mesh": 1,
+        "material": 1
+      },
+      "transform": {
+        "translation": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          3.0,
+          1.0,
+          2.0
+        ]
+      },
+      "gatherable": {
+        "collider": {
+          "kind": {
+            "Sphere": 5.0
+          },
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "loot": 0,
+        "timer": {
+          "duration": {
+            "secs": 1,
+            "nanos": 0
+          }
+        }
+      },
+      "interactable": {
+        "text": "Gather Copper Ore"
+      },
+      "name": "Copper Ore"
+    }
+  ],
+  "3788921169983988392": [
+    {
+      "render": {
+        "mesh": 0,
+        "material": 0
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ]
+}
