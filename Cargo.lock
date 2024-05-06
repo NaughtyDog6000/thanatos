@@ -319,16 +319,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "concat-idents"
-version = "1.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f76990911f2267d837d9d0ad060aa63aaad170af40904b29461734c339030d4d"
-dependencies = [
- "quote",
- "syn",
-]
-
-[[package]]
 name = "concurrent-queue"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -814,7 +804,6 @@ dependencies = [
 name = "nyx"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "glam",
  "rand",
  "serde",
@@ -1268,10 +1257,8 @@ dependencies = [
 name = "tecs"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "erased-serde",
  "serde",
- "serde_json",
  "tecs_derive",
 ]
 
@@ -1300,14 +1287,12 @@ dependencies = [
  "assets",
  "bincode",
  "bytemuck",
- "concat-idents",
  "glam",
  "gltf",
  "hephaestus",
  "log",
  "nyx",
  "pretty_env_logger",
- "rand",
  "serde",
  "serde_json",
  "styx",

@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec4};
 use nyx::{
     data,
-    item::{Inventory, Item, ItemStack, Rarity, Recipe, RecipeOutput, RARITIES},
+    item::{Inventory, Item, Rarity, Recipe, RecipeOutput, RARITIES},
     protocol::Serverbound, task::Proficiencies,
 };
 use styx::{
@@ -10,7 +10,7 @@ use styx::{
     },
     Constraint, Signal,
 };
-use tecs::{System, SystemMut};
+use tecs::SystemMut;
 
 use crate::{
     colours::rarity_colour,

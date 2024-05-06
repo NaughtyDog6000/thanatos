@@ -16,11 +16,11 @@ mod window;
 
 use crate::{camera::Camera, window::Window};
 use anyhow::Result;
-use assets::{Material, Mesh, MeshCache, MeshId};
+use assets::{Material, MeshCache, MeshId};
 use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::Gatherable;
-use glam::{Quat, Vec3, Vec4};
+use glam::{Vec3, Vec4};
 use interact::Interactable;
 use net::Connection;
 use nyx::task::Proficiencies;

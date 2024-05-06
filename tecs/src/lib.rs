@@ -7,8 +7,8 @@ pub mod utils;
 mod vecany;
 
 use serde::{
-    de::{DeserializeSeed, Visitor},
-    Deserialize, Serialize, Serializer,
+    de::DeserializeSeed,
+    Deserialize, Serialize,
 };
 use vecany::VecAny;
 

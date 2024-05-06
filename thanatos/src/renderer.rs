@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, mem::size_of, rc::Rc};
 
 use crate::{
-    assets::{self, Material, MeshCache, MeshId},
+    assets::{Material, MeshCache, MeshId},
     camera::Camera,
     event::Event,
     transform::Transform,
@@ -26,7 +26,7 @@ use hephaestus::{
 };
 use log::info;
 use serde::{Deserialize, Serialize};
-use styx::{components, Element, Font, FontSettings, Signals};
+use styx::{Element, Font, FontSettings, Signals};
 use tecs::EntityId;
 use winit::event::MouseButton;
 

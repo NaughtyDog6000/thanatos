@@ -1,6 +1,5 @@
 use std::{
     any::TypeId,
-    borrow::BorrowMut,
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
 };
