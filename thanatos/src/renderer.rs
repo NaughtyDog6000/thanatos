@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, mem::size_of, rc::Rc};
 
 use crate::{
-    assets::{self, Material, MaterialId, MeshId},
+    assets::{self, Material, MeshCache, MeshId},
     camera::Camera,
     event::Event,
     transform::Transform,
@@ -56,10 +56,10 @@ impl Drop for Frame {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RenderObject {
     pub mesh: MeshId,
-    pub material: MaterialId,
+    pub material: Material,
 }
 
 #[derive(Clone, Copy)]
@@ -441,7 +441,7 @@ impl Renderer {
 
         let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
 
-        let assets = world.get::<assets::Manager>().unwrap();
+        let mut meshes = world.get_mut::<MeshCache>().unwrap();
         let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
 
         let transforms = entities
@@ -463,7 +463,7 @@ impl Renderer {
 
         let materials = render_objects
             .iter()
-            .map(|object| *assets.get_material(object.material).unwrap())
+            .map(|object| object.material)
             .collect::<Vec<Material>>();
         let material_buffer = Static::new(
             &renderer.ctx,
@@ -483,7 +483,7 @@ impl Renderer {
         let (vertices, indices) = render_objects.iter().fold(
             (Vec::new(), Vec::new()),
             |(mut vertices, mut indices), object| {
-                let mesh = assets.get_mesh(object.mesh).unwrap();
+                let mesh = meshes.load(&object.mesh).unwrap();
                 vertices.extend_from_slice(&mesh.vertices);
                 indices.extend_from_slice(&mesh.indices);
                 (vertices, indices)
@@ -494,7 +494,7 @@ impl Renderer {
         let mut vertex_offset = 0;
 
         let draws = render_objects.iter().flat_map(|object| {
-            let mesh = assets.get_mesh(object.mesh).unwrap();
+            let mesh = meshes.load(&object.mesh).unwrap();
             let draw = [mesh.indices.len() as u32, 1, index_offset, vertex_offset, 0];
             index_offset += mesh.indices.len() as u32;
             vertex_offset += mesh.vertices.len() as u32;

@@ -2,8 +2,15 @@
   "307190193128039230": [
     {
       "render": {
-        "mesh": 1,
-        "material": 1
+        "mesh": "assets/meshes/copper_ore.glb",
+        "material": {
+          "colour": [
+            1.0,
+            0.5,
+            0.0,
+            1.0
+          ]
+        }
       },
       "transform": {
         "translation": [
@@ -51,8 +58,15 @@
   "3788921169983988392": [
     {
       "render": {
-        "mesh": 0,
-        "material": 0
+        "mesh": "assets/meshes/cube.glb",
+        "material": {
+          "colour": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
       },
       "transform": {
         "translation": [

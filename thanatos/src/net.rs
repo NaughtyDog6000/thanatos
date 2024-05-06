@@ -1,5 +1,5 @@
 use anyhow::Result;
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
 use std::{
     cell::RefCell,
@@ -8,10 +8,10 @@ use std::{
     net::UdpSocket,
     time::{Duration, Instant},
 };
-use tecs::{prelude::*, EntityId, Is, System};
+use tecs::prelude::*;
 
 use crate::{
-    assets::{MaterialId, MeshId},
+    assets::{Material, MeshId},
     event::Event,
     player::Player,
     renderer::RenderObject,
@@ -134,16 +134,14 @@ pub struct OtherPlayer {
 }
 
 pub struct MovementSystem {
-    mesh: MeshId,
-    material: MaterialId,
     positions: RefCell<HashMap<Tick, Vec3>>,
 }
 
 impl MovementSystem {
     fn spawn(&self, world: &World, client_id: ClientId, position: Vec3) {
         let render = RenderObject {
-            mesh: self.mesh,
-            material: self.material,
+            mesh: MeshId(String::from("assets/meshes/cube.glb")),
+            material: Material { colour: Vec4::ONE },
         };
         let mut transform = Transform::IDENTITY;
         transform.translation = position;
@@ -248,12 +246,10 @@ impl System<Event> for MovementSystem {
     }
 }
 
-pub fn add(mesh: MeshId, material: MaterialId) -> impl FnOnce(World) -> World {
-    move |world| {
-        world.register_unsaved::<OtherPlayer>().with_system(MovementSystem {
-            mesh,
-            material,
+pub fn add(mut world: World) -> World {
+    world
+        .register_unsaved::<OtherPlayer>()
+        .with_system(MovementSystem {
             positions: RefCell::new(HashMap::new()),
         })
-    }
 }

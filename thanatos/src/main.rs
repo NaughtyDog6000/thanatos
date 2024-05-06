@@ -16,7 +16,7 @@ mod window;
 
 use crate::{camera::Camera, window::Window};
 use anyhow::Result;
-use assets::{Material, Mesh};
+use assets::{Material, Mesh, MeshCache, MeshId};
 use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::Gatherable;
@@ -44,17 +44,12 @@ struct CopperOre {
 
 impl CopperOre {
     pub fn new(world: &World) -> Result<Self> {
-        let mut assets = world.get_mut::<assets::Manager>().unwrap();
-
-        let copper_ore = assets.add_mesh(Mesh::load("assets/meshes/copper_ore.glb")?);
-        let orange = assets.add_material(Material {
-            colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
-        });
-
         Ok(CopperOre {
             render: RenderObject {
-                mesh: copper_ore,
-                material: orange,
+                mesh: MeshId(String::from("assets/meshes/copper_ore.glb")),
+                material: Material {
+                    colour: Vec4::new(1.0, 0.5, 0.0, 1.0),
+                },
             },
             transform: Transform::IDENTITY,
             gatherable: Gatherable {
@@ -86,17 +81,13 @@ fn main() -> Result<()> {
     let renderer = Renderer::new(&window)?;
     let camera = Camera::new(&window);
 
-    let mut assets = assets::Manager::new();
-    let cube = assets.add_mesh(Mesh::load("assets/meshes/cube.glb")?);
-    let white = assets.add_material(Material { colour: Vec4::ONE });
-
     let mut world = World::new()
         .register::<Player>()
         .register::<CopperOre>()
         .with_resource(State::Running)
         .with_resource(Proficiencies::default())
+        .with_resource(MeshCache::default())
         .with(Connection::add)
-        .with_resource(assets)
         .with(window.add())
         .with(renderer.add())
         .with(camera.add())
@@ -117,22 +108,22 @@ fn main() -> Result<()> {
         })
         .with_ticker(Player::tick)
         .with_ticker(gather::tick)
-        .with(net::add(cube, white));
+        .with(net::add);
 
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
 
     /*
-    let player = world.spawn(Player {
+    world.spawn(Player {
         render: RenderObject {
-            mesh: cube,
-            material: white,
+            mesh: MeshId(String::from("assets/meshes/cube.glb")),
+            material: Material { colour: Vec4::ONE },
         },
         transform,
         health: Health(100.0),
     });
 
-    let copper_ore = world.spawn(CopperOre::new(&world)?.with_transform(Transform {
+    world.spawn(CopperOre::new(&world)?.with_transform(Transform {
         translation: Vec3::ONE,
         rotation: Quat::IDENTITY,
         scale: Vec3::new(3.0, 1.0, 2.0),
@@ -146,32 +137,15 @@ fn main() -> Result<()> {
     scene.save(&world, &mut serializer).unwrap();
     std::fs::write("assets/scenes/test.scene", buffer).unwrap();
     */
-    {
-        let buffer = std::fs::read("assets/scenes/test.scene").unwrap();
 
-        Scene::load(&world, &mut serde_json::Deserializer::from_slice(&buffer));
-    }
-
-    {
-        let mut scene = Scene::default();
-        scene.from_world(&world);
-
-        let mut buffer: Vec<u8> = Vec::new();
-        let mut serializer = serde_json::Serializer::pretty(&mut buffer);
-        scene.save(&world, &mut serializer).unwrap();
-        println!("{}", String::from_utf8(buffer).unwrap());
-    }
+    let buffer = std::fs::read("assets/scenes/test.scene").unwrap();
+    Scene::load(&world, &mut serde_json::Deserializer::from_slice(&buffer)).unwrap();
 
     loop {
         if let State::Stopped = *world.get::<State>().unwrap() {
             break;
         }
         world.tick();
-    }
-
-    // Remove early to drop GPU resources
-    {
-        world.remove::<assets::Manager>().unwrap();
     }
 
     Ok(())

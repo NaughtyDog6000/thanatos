@@ -1,11 +1,11 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::Result;
 use glam::{Vec3, Vec4};
 use gltf::Glb;
 use serde::{Deserialize, Serialize};
 
-use crate::renderer::{Renderer, Vertex};
+use crate::renderer::Vertex;
 
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
@@ -54,42 +54,29 @@ impl Mesh {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize)]
 pub struct Material {
     pub colour: Vec4,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct MeshId(usize);
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct MaterialId(usize);
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeshId(pub String);
 
-#[derive(Default)]
-pub struct Manager {
-    meshes: Vec<Mesh>,
-    materials: Vec<Material>,
+impl AsRef<Path> for MeshId {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
 }
 
-impl Manager {
-    pub fn new() -> Self {
-        Self::default()
-    }
+#[derive(Default)]
+pub struct MeshCache(HashMap<MeshId, Mesh>);
 
-    pub fn add_mesh(&mut self, mesh: Mesh) -> MeshId {
-        self.meshes.push(mesh);
-        MeshId(self.meshes.len() - 1)
-    }
-
-    pub fn get_mesh(&self, id: MeshId) -> Option<&Mesh> {
-        self.meshes.get(id.0)
-    }
-
-    pub fn add_material(&mut self, material: Material) -> MaterialId {
-        self.materials.push(material);
-        MaterialId(self.materials.len() - 1)
-    }
-
-    pub fn get_material(&self, id: MaterialId) -> Option<&Material> {
-        self.materials.get(id.0)
+impl MeshCache {
+    pub fn load<P: AsRef<Path>>(&mut self, path: P) -> Result<&Mesh> {
+        let id = MeshId(path.as_ref().to_str().unwrap().to_owned());
+        if self.0.get(&id).is_none() {
+            self.0.insert(id.clone(), Mesh::load(path)?);
+        }
+        Ok(self.0.get(&id).unwrap())
     }
 }
