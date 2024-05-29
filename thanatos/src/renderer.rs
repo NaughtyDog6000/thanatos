@@ -1,29 +1,34 @@
 use std::{collections::VecDeque, mem::size_of, rc::Rc};
 
 use crate::{
-    assets::{self, Material, MaterialId, MeshId},
+    assets::{Material, MeshCache, MeshId},
     camera::Camera,
+    event::Event,
     transform::Transform,
-    window::Window,
+    window::{Mouse, Window},
     World,
 };
+use anyhow::Result;
 use bytemuck::offset_of;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use hephaestus::{
     buffer::Static,
-    command, descriptor,
-    image::{Image, ImageView},
+    descriptor,
+    image::{Image, ImageInfo, ImageView},
     pipeline::{
-        self, clear_colour, clear_depth, Framebuffer, ImageLayout, PipelineBindPoint, RenderPass,
-        ShaderModule, Subpass, Viewport,
+        self, clear_colour, clear_depth, AttachmentInfo, Framebuffer, ImageLayout,
+        PipelineBindPoint, RenderPass, ShaderModule, Subpass, Viewport,
     },
     task::{Fence, Semaphore, SubmitInfo, Task},
     vertex::{self, AttributeType},
-    BufferUsageFlags, Context, DescriptorType, Extent2D, Format, ImageAspectFlags, ImageUsageFlags,
-    PipelineStageFlags, VkResult,
+    AttachmentLoadOp, AttachmentStoreOp, BufferUsageFlags, Context, DescriptorType, Extent2D,
+    Format, ImageAspectFlags, ImageUsageFlags, PipelineStageFlags, SampleCountFlags, VkResult,
 };
 use log::info;
+use serde::{Deserialize, Serialize};
+use styx::{Element, Font, FontSettings, Signals};
 use tecs::EntityId;
+use winit::event::MouseButton;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -51,29 +56,122 @@ impl Drop for Frame {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RenderObject {
     pub mesh: MeshId,
-    pub material: MaterialId,
+    pub material: Material,
+}
+
+#[derive(Clone, Copy)]
+pub enum Anchor {
+    TopLeft,
+    Cursor,
+    Center,
+    BottomRight,
+}
+
+pub struct Ui {
+    pub font: Rc<Font>,
+    pub signals: Signals,
+    elements: Vec<(Anchor, Box<dyn Element>)>,
+    events: Vec<styx::Event>,
+}
+
+impl Ui {
+    pub fn new() -> Self {
+        let font = Rc::new(
+            Font::from_bytes(
+                std::fs::read("assets/fonts/JetBrainsMono-Medium.ttf").unwrap(),
+                FontSettings::default(),
+            )
+            .unwrap(),
+        );
+
+        Self {
+            font,
+            signals: Signals::default(),
+            events: Vec::new(),
+            elements: Vec::new(),
+        }
+    }
+
+    pub fn add<T: Element + 'static>(&mut self, anchor: Anchor, element: T) {
+        self.elements.push((anchor, Box::new(element)))
+    }
+
+    pub fn event(world: &World, event: &Event) {
+        let event = match event {
+            Event::MousePress(button) => {
+                let mouse = world.get::<Mouse>().unwrap();
+                match button {
+                    MouseButton::Left => styx::Event::Click(mouse.position),
+                    MouseButton::Right => styx::Event::RightClick(mouse.position),
+                    _ => return
+                }
+            }
+            _ => return,
+        };
+
+        let mut ui = world.get_mut::<Ui>().unwrap();
+        ui.events.push(event)
+    }
+
+    pub fn paint(&mut self, world: &World) -> styx::Scene {
+        let window = world.get::<Window>().unwrap();
+        let mouse = world.get::<Mouse>().unwrap();
+        let window_size = window.window.inner_size();
+        let window_size = Vec2::new(window_size.width as f32, window_size.height as f32);
+
+        let constraint = styx::Constraint {
+            min: Vec2::ZERO,
+            max: window_size,
+        };
+
+        self.signals.clear();
+        let mut scene = styx::Scene::new();
+        self.elements.iter_mut().for_each(|(anchor, element)| {
+            let size = element.layout(constraint);
+            let origin = match anchor {
+                Anchor::TopLeft => Vec2::ZERO,
+                Anchor::Center => (window_size - size) / 2.0,
+                Anchor::Cursor => mouse.position,
+                Anchor::BottomRight => window_size - size,
+            };
+
+            element.paint(
+                styx::Area { origin, size },
+                &mut scene,
+                &self.events,
+                &mut self.signals,
+            );
+        });
+
+        self.events.clear();
+        self.elements.clear();
+
+        scene
+    }
 }
 
 pub struct Renderer {
     render_pass: RenderPass,
     pipeline: pipeline::Graphics,
+    ui: styx::Renderer,
     framebuffers: Vec<Framebuffer>,
     semaphores: Vec<Rc<Semaphore>>,
     frame_index: usize,
     tasks: VecDeque<Frame>,
     camera_layout: Rc<descriptor::Layout>,
     object_layout: Rc<descriptor::Layout>,
-    depth_images: Vec<Image>,
-    depth_views: Vec<ImageView>,
+    images: Vec<(Rc<Image>, Rc<Image>)>,
+    views: Vec<(Rc<ImageView>, Rc<ImageView>)>,
     pub ctx: Context,
 }
 
 impl Renderer {
     pub const FRAMES_IN_FLIGHT: usize = 3;
 
-    pub fn new(window: &Window) -> VkResult<Self> {
+    pub fn new(window: &Window) -> Result<Self> {
         let size = window.window.inner_size();
         let ctx = Context::new("thanatos", &window.window, (size.width, size.height))?;
 
@@ -87,29 +185,60 @@ impl Renderer {
             &std::fs::read("assets/shaders/shader.frag.spv").unwrap(),
         )?;
 
+        let samples = ctx.device.physical.get_samples();
+
         let render_pass = {
             let mut builder = RenderPass::builder();
             let colour = builder.attachment(
                 ctx.swapchain.as_ref().unwrap().format,
-                ImageLayout::UNDEFINED,
-                ImageLayout::PRESENT_SRC_KHR,
+                AttachmentInfo {
+                    initial_layout: ImageLayout::UNDEFINED,
+                    final_layout: ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    load_op: AttachmentLoadOp::CLEAR,
+                    store_op: AttachmentStoreOp::DONT_CARE,
+                    samples,
+                },
             );
+
             let depth = builder.attachment(
                 Format::D32_SFLOAT,
-                ImageLayout::UNDEFINED,
-                ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                AttachmentInfo {
+                    initial_layout: ImageLayout::UNDEFINED,
+                    final_layout: ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    load_op: AttachmentLoadOp::CLEAR,
+                    store_op: AttachmentStoreOp::DONT_CARE,
+                    samples,
+                },
+            );
+
+            let resolve = builder.attachment(
+                ctx.swapchain.as_ref().unwrap().format,
+                AttachmentInfo {
+                    initial_layout: ImageLayout::UNDEFINED,
+                    final_layout: ImageLayout::PRESENT_SRC_KHR,
+                    load_op: AttachmentLoadOp::DONT_CARE,
+                    store_op: AttachmentStoreOp::STORE,
+                    samples: SampleCountFlags::TYPE_1,
+                },
+            );
+
+            builder.subpass(
+                Subpass::new(PipelineBindPoint::GRAPHICS)
+                    .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .depth(depth, ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                    .resolve(resolve, ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
             );
             builder.subpass(
                 Subpass::new(PipelineBindPoint::GRAPHICS)
                     .colour(colour, ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                    .depth(depth, ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL),
+                    .resolve(resolve, ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
             );
             builder.build(&ctx.device)?
         };
 
         let camera_layout = descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER], 1000)?;
         let object_layout =
-            descriptor::Layout::new(&ctx, &[DescriptorType::UNIFORM_BUFFER; 2], 1000)?;
+            descriptor::Layout::new(&ctx, &[DescriptorType::STORAGE_BUFFER; 2], 1000)?;
 
         let pipeline = pipeline::Graphics::builder()
             .vertex(&vertex)
@@ -120,9 +249,12 @@ impl Renderer {
             .viewport(Viewport::Dynamic)
             .layouts(vec![&camera_layout, &object_layout])
             .depth()
+            .multisampled(samples)
             .build(&ctx.device)?;
 
-        let (depth_images, depth_views) = Self::create_depth_images(&ctx)?;
+        let ui = styx::Renderer::new(&ctx, &render_pass, 1)?;
+
+        let (images, views) = Self::create_images(&ctx)?;
 
         let framebuffers = ctx
             .swapchain
@@ -130,8 +262,10 @@ impl Renderer {
             .unwrap()
             .views
             .iter()
-            .zip(&depth_views)
-            .map(|(colour, depth)| render_pass.get_framebuffer(&ctx.device, &[colour, depth]))
+            .zip(&views)
+            .map(|(resolve, (colour, depth))| {
+                render_pass.get_framebuffer(&ctx.device, &[colour, depth, resolve])
+            })
             .collect::<VkResult<Vec<Framebuffer>>>()?;
 
         let semaphores = (0..Self::FRAMES_IN_FLIGHT)
@@ -142,52 +276,89 @@ impl Renderer {
             ctx,
             render_pass,
             pipeline,
+            ui,
             framebuffers,
             semaphores,
             frame_index: 0,
             tasks: VecDeque::new(),
             camera_layout,
             object_layout,
-            depth_images,
-            depth_views,
+            images,
+            views,
         })
     }
 
     pub fn add(self) -> impl FnOnce(World) -> World {
-        move |world| world.with_resource(self).with_ticker(Self::draw)
+        move |world| {
+            world
+                .with_resource(self)
+                .with_resource(Ui::new())
+                .with_ticker(Self::draw)
+                .with_handler(Ui::event)
+        }
     }
 
-    fn create_depth_images(ctx: &Context) -> VkResult<(Vec<Image>, Vec<ImageView>)> {
-        let depth_images = ctx
+    fn create_images(
+        ctx: &Context,
+    ) -> VkResult<(
+        Vec<(Rc<Image>, Rc<Image>)>,
+        Vec<(Rc<ImageView>, Rc<ImageView>)>,
+    )> {
+        let swapchain = ctx.swapchain.as_ref().unwrap();
+        let samples = ctx.device.physical.get_samples();
+        let images = ctx
             .swapchain
             .as_ref()
             .unwrap()
             .views
             .iter()
             .map(|_| {
-                Image::new(
-                    &ctx,
-                    Format::D32_SFLOAT,
-                    ctx.swapchain.as_ref().unwrap().extent,
-                    ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-                )
+                Ok((
+                    Image::new(
+                        ctx,
+                        ImageInfo {
+                            format: swapchain.format,
+                            extent: swapchain.extent,
+                            usage: ImageUsageFlags::COLOR_ATTACHMENT,
+                            samples,
+                        },
+                    )?,
+                    Image::new(
+                        ctx,
+                        ImageInfo {
+                            format: Format::D32_SFLOAT,
+                            extent: swapchain.extent,
+                            usage: ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+                            samples,
+                        },
+                    )?,
+                ))
             })
             .collect::<VkResult<Vec<_>>>()?;
 
-        let depth_views = depth_images
+        let views = images
             .iter()
-            .map(|image| {
-                ImageView::new(
-                    &ctx.device,
-                    image.handle,
-                    Format::D32_SFLOAT,
-                    ImageAspectFlags::DEPTH,
-                    ctx.swapchain.as_ref().unwrap().extent,
-                )
+            .map(|(colour, depth)| {
+                Ok((
+                    ImageView::new(
+                        &ctx.device,
+                        &colour,
+                        swapchain.format,
+                        ImageAspectFlags::COLOR,
+                        swapchain.extent,
+                    )?,
+                    ImageView::new(
+                        &ctx.device,
+                        &depth,
+                        Format::D32_SFLOAT,
+                        ImageAspectFlags::DEPTH,
+                        ctx.swapchain.as_ref().unwrap().extent,
+                    )?,
+                ))
             })
             .collect::<VkResult<Vec<_>>>()?;
 
-        Ok((depth_images, depth_views))
+        Ok((images, views))
     }
 
     pub fn recreate_swapchain(&mut self, size: (u32, u32)) -> VkResult<()> {
@@ -199,12 +370,12 @@ impl Renderer {
         self.ctx.recreate_swapchain().unwrap();
 
         self.framebuffers.clear();
-        self.depth_views.clear();
-        self.depth_images.clear();
+        self.views.clear();
+        self.images.clear();
 
-        let (depth_images, depth_views) = Self::create_depth_images(&self.ctx)?;
-        self.depth_images = depth_images;
-        self.depth_views = depth_views;
+        let (images, views) = Self::create_images(&self.ctx)?;
+        self.images = images;
+        self.views = views;
 
         self.framebuffers = self
             .ctx
@@ -213,10 +384,10 @@ impl Renderer {
             .unwrap()
             .views
             .iter()
-            .zip(&self.depth_views)
-            .map(|(colour, depth)| {
+            .zip(&self.views)
+            .map(|(resolve, (colour, depth))| {
                 self.render_pass
-                    .get_framebuffer(&self.ctx.device, &[colour, depth])
+                    .get_framebuffer(&self.ctx.device, &[colour, depth, resolve])
             })
             .collect::<VkResult<Vec<Framebuffer>>>()?;
 
@@ -270,39 +441,95 @@ impl Renderer {
 
         let clear_values = [clear_colour([0.0, 0.0, 0.0, 1.0]), clear_depth(1.0)];
 
-        let assets = world.get::<assets::Manager>().unwrap();
+        let mut meshes = world.get_mut::<MeshCache>().unwrap();
         let (entities, render_objects) = world.query::<(EntityId, &RenderObject)>();
-        let object_sets = entities
+
+        let transforms = entities
             .iter()
-            .zip(render_objects.iter())
-            .map(|(id, render_object)| {
-                let transform = world
+            .map(|id| {
+                world
                     .get_component::<Transform>(*id)
                     .map(|x| *x)
-                    .unwrap_or_default();
-                let material = assets.get_material(render_object.material).unwrap();
-                let transform_buffer = Static::new(
-                    &renderer.ctx,
-                    bytemuck::cast_slice::<f32, u8>(&transform.matrix().to_cols_array()),
-                    BufferUsageFlags::UNIFORM_BUFFER,
-                )
-                .unwrap();
-                let material_buffer = Static::new(
-                    &renderer.ctx,
-                    bytemuck::cast_slice::<Material, u8>(&[*material]),
-                    BufferUsageFlags::UNIFORM_BUFFER,
-                )
-                .unwrap();
-                let set = renderer
-                    .object_layout
-                    .alloc()
-                    .unwrap()
-                    .write_buffer(0, &transform_buffer)
-                    .write_buffer(1, &material_buffer)
-                    .finish();
-                (transform_buffer, material_buffer, set)
+                    .unwrap_or_default()
             })
-            .collect::<Vec<_>>();
+            .flat_map(|transform| transform.matrix().to_cols_array())
+            .collect::<Vec<f32>>();
+        let transform_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<f32, u8>(&transforms),
+            BufferUsageFlags::STORAGE_BUFFER,
+        )
+        .unwrap();
+
+        let materials = render_objects
+            .iter()
+            .map(|object| object.material)
+            .collect::<Vec<Material>>();
+        let material_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<Material, u8>(&materials),
+            BufferUsageFlags::STORAGE_BUFFER,
+        )
+        .unwrap();
+
+        let set = renderer
+            .object_layout
+            .alloc()
+            .unwrap()
+            .write_buffer(0, &transform_buffer)
+            .write_buffer(1, &material_buffer)
+            .finish();
+
+        let (vertices, indices) = render_objects.iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut vertices, mut indices), object| {
+                let mesh = meshes.load(&object.mesh).unwrap();
+                vertices.extend_from_slice(&mesh.vertices);
+                indices.extend_from_slice(&mesh.indices);
+                (vertices, indices)
+            },
+        );
+
+        let mut index_offset = 0;
+        let mut vertex_offset = 0;
+
+        let draws = render_objects.iter().flat_map(|object| {
+            let mesh = meshes.load(&object.mesh).unwrap();
+            let draw = [mesh.indices.len() as u32, 1, index_offset, vertex_offset, 0];
+            index_offset += mesh.indices.len() as u32;
+            vertex_offset += mesh.vertices.len() as u32;
+            draw
+        }).collect::<Vec<u32>>();
+        let draw_buffer = Static::new(&renderer.ctx, bytemuck::cast_slice::<u32, u8>(&draws), BufferUsageFlags::INDIRECT_BUFFER).unwrap();
+
+        let vertex_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<Vertex, u8>(&vertices),
+            BufferUsageFlags::VERTEX_BUFFER,
+        )
+        .unwrap();
+        let index_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<u32, u8>(&indices),
+            BufferUsageFlags::INDEX_BUFFER,
+        )
+        .unwrap();
+
+        let scene = world.get_mut::<Ui>().unwrap().paint(&world);
+        let frame = if !scene.is_empty() {
+            Some(
+                renderer
+                    .ui
+                    .prepare(
+                        &renderer.ctx,
+                        &scene,
+                        Vec2::new(size.width as f32, size.height as f32),
+                    )
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
 
         let cmd = renderer
             .ctx
@@ -319,18 +546,15 @@ impl Renderer {
             .bind_graphics_pipeline(&renderer.pipeline)
             .set_viewport(size.width, size.height)
             .set_scissor(size.width, size.height)
-            .bind_descriptor_set(&camera_set, 0);
+            .bind_descriptor_set(&camera_set, 0)
+            .bind_descriptor_set(&set, 1)
+            .bind_vertex_buffer(&vertex_buffer, 0)
+            .bind_index_buffer(&index_buffer).draw_indexed_indirect(&draw_buffer, 0, draws.len() as u32 / 5, 20);
 
-        let cmd = render_objects.iter().zip(object_sets.iter()).fold(
-            cmd,
-            |cmd, (object, (_, _, set))| {
-                let mesh = assets.get_mesh(object.mesh).unwrap();
-                cmd.bind_vertex_buffer(&mesh.vertex_buffer, 0)
-                    .bind_index_buffer(&mesh.index_buffer)
-                    .bind_descriptor_set(set, 1)
-                    .draw_indexed(mesh.num_indices, 1, 0, 0, 0)
-            },
-        );
+        let cmd = match frame {
+            Some(frame) => renderer.ui.draw(frame, cmd),
+            None => cmd.next_subpass(),
+        };
 
         let cmd = cmd.end_render_pass().end().unwrap();
 

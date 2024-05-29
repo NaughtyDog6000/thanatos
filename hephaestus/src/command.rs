@@ -3,14 +3,18 @@ use std::{any::Any, rc::Rc};
 use ash::{
     prelude::VkResult,
     vk::{
-        self, BufferCopy, ClearValue, CommandBufferAllocateInfo, CommandBufferBeginInfo,
-        CommandBufferLevel, CommandPoolCreateInfo, Extent2D, IndexType, Offset2D,
-        PipelineBindPoint, PipelineLayout, Rect2D, RenderPassBeginInfo, SubpassContents, Viewport,
+        self, AccessFlags, BufferCopy, BufferImageCopy, ClearValue, CommandBufferAllocateInfo,
+        CommandBufferBeginInfo, CommandBufferLevel, CommandPoolCreateInfo, DependencyFlags,
+        Extent2D, Extent3D, ImageAspectFlags, ImageLayout, ImageMemoryBarrier,
+        ImageSubresourceLayers, ImageSubresourceRange, IndexType, Offset2D, Offset3D,
+        PipelineBindPoint, PipelineLayout, PipelineStageFlags, Rect2D, RenderPassBeginInfo,
+        SubpassContents, Viewport,
     },
 };
 
 use crate::{
     buffer, descriptor,
+    image::Image,
     pipeline::{Framebuffer, Graphics, RenderPass},
     Device, Queue,
 };
@@ -21,11 +25,24 @@ pub struct Region {
     pub size: usize,
 }
 
+pub struct BufferToImageRegion {
+    pub from_offset: usize,
+    pub to_offset: Offset3D,
+    pub to_extent: Extent3D,
+}
+
+pub struct TransitionLayout {
+    pub from: ImageLayout,
+    pub to: ImageLayout,
+    pub before: (AccessFlags, PipelineStageFlags),
+    pub after: (AccessFlags, PipelineStageFlags),
+}
+
 pub struct Buffer {
     device: Rc<Device>,
     pool: Rc<Pool>,
     pub handle: vk::CommandBuffer,
-    resources: Vec<Rc<dyn Any>>
+    resources: Vec<Rc<dyn Any>>,
 }
 
 impl Buffer {
@@ -158,6 +175,26 @@ impl<'a> Recorder<'a> {
         self
     }
 
+    pub fn draw_indexed_indirect<T: buffer::Buffer + 'static>(
+        mut self,
+        buffer: &Rc<T>,
+        offset: u64,
+        draw_count: u32,
+        stride: u32,
+    ) -> Self {
+        unsafe {
+            self.buffer.device.cmd_draw_indexed_indirect(
+                self.buffer.handle,
+                buffer.buffer(),
+                offset,
+                draw_count,
+                stride,
+            )
+        }
+        self.buffer.resources.push(buffer.clone());
+        self
+    }
+
     pub fn set_viewport(self, width: u32, height: u32) -> Self {
         let viewport = Viewport::builder()
             .x(0.0)
@@ -190,7 +227,11 @@ impl<'a> Recorder<'a> {
         self
     }
 
-    pub fn bind_vertex_buffer<T: buffer::Buffer + 'static>(mut self, buffer: &Rc<T>, binding: u32) -> Self {
+    pub fn bind_vertex_buffer<T: buffer::Buffer + 'static>(
+        mut self,
+        buffer: &Rc<T>,
+        binding: u32,
+    ) -> Self {
         unsafe {
             self.buffer.device.cmd_bind_vertex_buffers(
                 self.buffer.handle,
@@ -249,6 +290,79 @@ impl<'a> Recorder<'a> {
                 to.buffer(),
                 &[*region],
             )
+        }
+        self
+    }
+
+    pub fn copy_buffer_to_image<A: buffer::Buffer>(
+        self,
+        from: &A,
+        to: &Image,
+        layout: ImageLayout,
+        region: BufferToImageRegion,
+    ) -> Self {
+        let region = BufferImageCopy::builder()
+            .buffer_offset(region.from_offset as u64)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(ImageSubresourceLayers {
+                aspect_mask: ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_offset(region.to_offset)
+            .image_extent(region.to_extent)
+            .build();
+
+        unsafe {
+            self.buffer.device.cmd_copy_buffer_to_image(
+                self.buffer.handle,
+                from.buffer(),
+                to.handle,
+                layout,
+                &[region],
+            )
+        }
+        self
+    }
+
+    pub fn transition_layout(self, image: &Image, info: TransitionLayout) -> Self {
+        let barrier = ImageMemoryBarrier::builder()
+            .old_layout(info.from)
+            .new_layout(info.to)
+            .image(image.handle)
+            .subresource_range(ImageSubresourceRange {
+                aspect_mask: ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .src_access_mask(info.before.0)
+            .dst_access_mask(info.after.0)
+            .build();
+
+        unsafe {
+            self.buffer.device.cmd_pipeline_barrier(
+                self.buffer.handle,
+                info.before.1,
+                info.after.1,
+                DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier],
+            )
+        }
+
+        self
+    }
+
+    pub fn next_subpass(self) -> Self {
+        unsafe {
+            self.buffer
+                .device
+                .cmd_next_subpass(self.buffer.handle, SubpassContents::INLINE)
         }
         self
     }

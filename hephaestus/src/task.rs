@@ -78,6 +78,21 @@ impl Task {
         Self::default()
     }
 
+    pub fn run(device: &Rc<Device>, queue: &Queue, cmd: &Rc<command::Buffer>) -> VkResult<()> {
+        let mut task = Task::new();
+        let fence = Fence::new(device)?;
+        task.submit(SubmitInfo {
+            device,
+            queue,
+            cmd,
+            wait: &[],
+            signal: &[],
+            fence: fence.clone(),
+        })?;
+        fence.wait()?;
+        Ok(())
+    }
+
     pub fn acquire_next_image(
         &mut self,
         device: &Device,
@@ -136,7 +151,7 @@ impl Task {
                 .collect::<Vec<_>>(),
         );
         self.semaphores
-            .extend_from_slice(&info.signal);
+            .extend_from_slice(info.signal);
         self.fences.push(info.fence);
         self.cmds.push(info.cmd.clone());
 

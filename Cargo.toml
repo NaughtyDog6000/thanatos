@@ -1,11 +1,13 @@
 [workspace]
 resolver = "2"
 default-members = ["thanatos"]
-members = [
+members = [ 
+    "assets",
     "gltf", 
     "hephaestus", 
-    "hypnos", "nyx", 
+    "hypnos", 
+    "styx", 
     "tecs",
+    "tecs/tecs_derive",
     "thanatos",
-    "thanatos_macros"
 ]

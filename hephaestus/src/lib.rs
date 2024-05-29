@@ -15,15 +15,13 @@ use std::{
 
 pub use ash::prelude::VkResult;
 pub use ash::vk::{
-    BufferUsageFlags, ClearColorValue, ClearValue, DescriptorType, Extent2D, Format,
-    ImageAspectFlags, ImageUsageFlags, MemoryPropertyFlags, PipelineStageFlags,
+    AccessFlags, AttachmentLoadOp, AttachmentStoreOp, BufferUsageFlags, ClearColorValue,
+    ClearValue, DescriptorType, Extent2D, Extent3D, Format, ImageAspectFlags, ImageUsageFlags,
+    MemoryPropertyFlags, Offset2D, Offset3D, PipelineStageFlags, SampleCountFlags,
 };
 use ash::{
     vk::{
-        self, ApplicationInfo, ColorSpaceKHR, CompositeAlphaFlagsKHR, DeviceCreateInfo,
-        DeviceQueueCreateInfo, Image, InstanceCreateInfo, PhysicalDeviceFeatures,
-        PhysicalDeviceProperties, PresentModeKHR, QueueFamilyProperties, QueueFlags, SharingMode,
-        SurfaceCapabilitiesKHR, SurfaceFormatKHR, SwapchainCreateInfoKHR, SwapchainKHR,
+        self, ApplicationInfo, ColorSpaceKHR, CompositeAlphaFlagsKHR, DeviceCreateInfo, DeviceQueueCreateInfo, Image, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceProperties, PhysicalDeviceVulkan11Features, PresentModeKHR, QueueFamilyProperties, QueueFlags, SharingMode, SurfaceCapabilitiesKHR, SurfaceFormatKHR, SwapchainCreateInfoKHR, SwapchainKHR
     },
     Entry,
 };
@@ -38,7 +36,7 @@ pub struct InstanceExtensions {
 
 impl InstanceExtensions {
     pub fn new(entry: &Entry, instance: &ash::Instance) -> Self {
-        let surface = ash::extensions::khr::Surface::new(entry, &instance);
+        let surface = ash::extensions::khr::Surface::new(entry, instance);
 
         Self { surface }
     }
@@ -62,6 +60,14 @@ pub struct PhysicalDevice {
     pub properties: PhysicalDeviceProperties,
     pub features: PhysicalDeviceFeatures,
     pub queue_families: Vec<QueueFamilyProperties>,
+}
+
+impl PhysicalDevice {
+    pub fn get_samples(&self) -> SampleCountFlags {
+        let samples = self.properties.limits.framebuffer_color_sample_counts
+            & self.properties.limits.framebuffer_depth_sample_counts;
+        SampleCountFlags::from_raw(1 << (31 - samples.as_raw().leading_zeros()))
+    }
 }
 
 pub struct Surface {
@@ -148,8 +154,7 @@ impl Instance {
             .filter(|wanted| {
                 let found = available
                     .iter()
-                    .find(|layer| unsafe { CStr::from_ptr(layer.layer_name.as_ptr()) } == **wanted)
-                    .is_some();
+                    .any(|layer| unsafe { CStr::from_ptr(layer.layer_name.as_ptr()) } == **wanted);
                 if !found {
                     warn!("Missing validation layer: {}", wanted.to_str().unwrap())
                 }
@@ -161,20 +166,26 @@ impl Instance {
         let available = entry.enumerate_instance_extension_properties(None)?;
         let presentation_extensions =
             ash_window::enumerate_required_extensions(window.raw_display_handle())?;
+        println!(
+            "{:?}",
+            available
+                .iter()
+                .map(|extension| unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) })
+                .collect::<Vec<_>>()
+        );
         let extensions = Self::EXTENSIONS
             .iter()
             .filter(|wanted| {
                 let found = available
                     .iter()
-                    .find(|extension| unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) } == **wanted)
-                    .is_some();
+                    .any(|extension| unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) } == **wanted);
                 if !found {
                     error!("Missing extension: {}", wanted.to_str().unwrap())
                 }
                 found
             })
             .map(|name| name.as_ptr() as *const c_char)
-            .chain(presentation_extensions.iter().map(|x| *x))
+            .chain(presentation_extensions.iter().copied())
             .collect::<Vec<_>>();
 
         let create_info = InstanceCreateInfo::builder()
@@ -248,7 +259,7 @@ pub struct Swapchain {
     device: Rc<Device>,
     pub handle: SwapchainKHR,
     pub images: Vec<Image>,
-    pub views: Vec<ImageView>,
+    pub views: Vec<Rc<ImageView>>,
     pub format: Format,
     pub extent: Extent2D,
 }
@@ -325,8 +336,8 @@ impl Swapchain {
         let views = images
             .iter()
             .map(|image| {
-                ImageView::new(
-                    &device,
+                ImageView::new_from_handle(
+                    device,
                     *image,
                     format.format,
                     ImageAspectFlags::COLOR,
@@ -398,8 +409,7 @@ impl Device {
             .filter(|wanted| {
                 let found = available
                     .iter()
-                    .find(|extension| unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) } == **wanted)
-                    .is_some();
+                    .any(|extension| unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) } == **wanted);
                 if !found {
                     error!("Missing extension: {}", wanted.to_str().unwrap())
                 }
@@ -408,9 +418,13 @@ impl Device {
             .map(|name| name.as_ptr() as *const c_char)
             .collect::<Vec<_>>();
 
+        let features = PhysicalDeviceFeatures::builder().multi_draw_indirect(true);
+        let mut features11 = PhysicalDeviceVulkan11Features::builder().shader_draw_parameters(true);
+
         let create_info = DeviceCreateInfo::builder()
             .enabled_extension_names(&extensions)
-            .queue_create_infos(&queue_create_infos);
+            .queue_create_infos(&queue_create_infos)
+            .enabled_features(&features).push_next(&mut features11);
 
         let inner = unsafe { instance.create_device(physical.handle, &create_info, None)? };
 
@@ -419,7 +433,7 @@ impl Device {
             present: Queue::new(&inner, present_index),
         };
 
-        let swapchain = ash::extensions::khr::Swapchain::new(&instance, &inner);
+        let swapchain = ash::extensions::khr::Swapchain::new(instance, &inner);
         let extensions = DeviceExtensions { swapchain };
 
         Ok(Self {
@@ -452,7 +466,10 @@ impl Context {
         window: T,
         extent: (u32, u32),
     ) -> VkResult<Self> {
-        let entry = Entry::linked();
+        let entry = unsafe { Entry::load() }.unwrap_or_else(|_| {
+            println!("Failed to load vulkan dll, using linked vulkan");
+            Entry::linked()
+        });
         let name = CString::new(name).unwrap();
         let instance = Rc::new(Instance::new(&entry, &name, &window)?);
         let physical = unsafe { instance.get_physical_device()? };
