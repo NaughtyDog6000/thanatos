@@ -1,5 +1,5 @@
 use anyhow::Result;
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
 use std::{
     cell::RefCell,
@@ -8,11 +8,10 @@ use std::{
     net::UdpSocket,
     time::{Duration, Instant},
 };
-use tecs::{impl_archetype, Is, System};
-use thanatos_macros::Archetype;
+use tecs::prelude::*;
 
 use crate::{
-    assets::{MaterialId, MeshId},
+    assets::{Material, MeshId},
     event::Event,
     player::Player,
     renderer::RenderObject,
@@ -22,7 +21,6 @@ use crate::{
 
 pub struct Connection {
     socket: UdpSocket,
-    buffer: Vec<u8>,
     pub id: Option<ClientId>,
     pub tick: Tick,
 }
@@ -34,7 +32,6 @@ impl Connection {
         socket.set_nonblocking(true)?;
         let mut conn = Self {
             socket,
-            buffer: Vec::new(),
             id: None,
             tick: Tick(0),
         };
@@ -49,11 +46,11 @@ impl Connection {
     }
 
     fn get(&mut self) -> Option<ClientboundBundle> {
-        let mut buffer = [0; 4096]; 
+        let mut buffer = [0; 4096];
         match self.socket.recv(&mut buffer) {
             Ok(_) => Some(bincode::deserialize(&buffer).unwrap()),
             Err(e) if e.kind() == ErrorKind::WouldBlock => None,
-            Err(e) => panic!("{e}")
+            Err(e) => panic!("{e}"),
         }
     }
 
@@ -89,6 +86,7 @@ impl Connection {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Positions {
     queue: VecDeque<(Instant, Vec3)>,
 }
@@ -101,7 +99,10 @@ impl Positions {
     }
 
     pub fn push(&mut self, position: Vec3) {
-        self.queue.push_back((Instant::now() + Duration::from_secs_f32(2.0 / TPS), position))
+        self.queue.push_back((
+            Instant::now() + Duration::from_secs_f32(2.0 / TPS),
+            position,
+        ))
     }
 
     pub fn get(&mut self) -> Option<Vec3> {
@@ -109,8 +110,8 @@ impl Positions {
         match self.queue.len() {
             0 => None,
             1 => self.queue.get(1).map(|x| x.1),
-            n => {
-                let first = self.queue.get(0).unwrap();
+            _ => {
+                let first = self.queue.front().unwrap();
                 let second = self.queue.get(1).unwrap();
                 if second.0 < now {
                     self.queue.pop_front();
@@ -124,7 +125,7 @@ impl Positions {
     }
 }
 
-#[derive(Archetype)]
+#[derive(Archetype, Clone)]
 pub struct OtherPlayer {
     pub client_id: ClientId,
     pub render: RenderObject,
@@ -133,16 +134,14 @@ pub struct OtherPlayer {
 }
 
 pub struct MovementSystem {
-    mesh: MeshId,
-    material: MaterialId,
     positions: RefCell<HashMap<Tick, Vec3>>,
 }
 
 impl MovementSystem {
     fn spawn(&self, world: &World, client_id: ClientId, position: Vec3) {
         let render = RenderObject {
-            mesh: self.mesh,
-            material: self.material,
+            mesh: MeshId(String::from("assets/meshes/cube.glb")),
+            material: Material { colour: Vec4::ONE },
         };
         let mut transform = Transform::IDENTITY;
         transform.translation = position;
@@ -193,27 +192,33 @@ impl MovementSystem {
     }
 
     fn despawn(&self, world: &World, client_id: ClientId) {
-        let (mut transforms, client_ids, _) =
-            world.query::<(&mut Transform, &ClientId, Is<OtherPlayer>)>();
-        let mut client_ids = client_ids
-            .iter();
-        transforms.for_each(|transform| {
-            if *client_ids.next().unwrap() == client_id {
-                transform.translation = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-            };
-        })
+        let id = {
+            let (entities, client_ids, _) = world.query::<(EntityId, &ClientId, Is<OtherPlayer>)>();
+            entities
+                .iter()
+                .zip(client_ids.iter().collect::<Vec<_>>())
+                .find(|(_, id)| **id == client_id)
+                .map(|(entity, _)| *entity)
+        };
+
+        if let Some(id) = id {
+            world.despawn::<OtherPlayer>(id);
+        }
     }
 
     fn send_player_position(&self, world: &World) {
         let mut conn = world.get_mut::<Connection>().unwrap();
         let (transforms, _) = world.query::<(&Transform, Is<Player>)>();
-        let position = transforms.iter().next().unwrap().translation;
+        let option_position = transforms.iter().next();
+        if option_position.is_none() {
+            return;
+        }
+        let position = option_position.unwrap().translation;
         if conn.id.is_none() {
             return;
         }
         let tick = conn.tick;
-        conn.write(Serverbound::Move(position, tick))
-            .unwrap();
+        conn.write(Serverbound::Move(position, tick)).unwrap();
         self.positions.borrow_mut().insert(tick, position);
     }
 }
@@ -245,12 +250,10 @@ impl System<Event> for MovementSystem {
     }
 }
 
-pub fn add(mesh: MeshId, material: MaterialId) -> impl FnOnce(World) -> World {
-    move |world| {
-        world.register::<OtherPlayer>().with_system(MovementSystem {
-            mesh,
-            material,
+pub fn add(world: World) -> World {
+    world
+        .register_unsaved::<OtherPlayer>()
+        .with_system(MovementSystem {
             positions: RefCell::new(HashMap::new()),
         })
-    }
 }

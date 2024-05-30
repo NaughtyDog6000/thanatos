@@ -33,7 +33,7 @@ impl Camera {
         rotated + self.target
     }
 
-    fn direction(&self) -> Vec3 {
+    pub fn direction(&self) -> Vec3 {
         (self.eye() - self.target).normalize()
     }
 

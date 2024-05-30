@@ -1,20 +1,20 @@
-use std::{path::Path, rc::Rc};
+use std::{collections::HashMap, path::Path};
 
 use anyhow::Result;
 use glam::{Vec3, Vec4};
 use gltf::Glb;
-use hephaestus::{buffer::Static, BufferUsageFlags};
+use serde::{Deserialize, Serialize};
 
-use crate::renderer::{Renderer, Vertex};
+use crate::renderer::Vertex;
 
 pub struct Mesh {
-    pub vertex_buffer: Rc<Static>,
-    pub index_buffer: Rc<Static>,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
     pub num_indices: u32,
 }
 
 impl Mesh {
-    pub fn load<T: AsRef<Path>>(path: T, renderer: &Renderer) -> Result<Self> {
+    pub fn load<T: AsRef<Path>>(path: T) -> Result<Self> {
         let model = Glb::load(&std::fs::read(path).unwrap()).unwrap();
 
         let positions: Vec<Vec3> = bytemuck::cast_slice::<u8, f32>(
@@ -23,7 +23,7 @@ impl Mesh {
                 .unwrap(),
         )
         .chunks(3)
-        .map(|pos| Vec3::from_slice(pos))
+        .map(Vec3::from_slice)
         .collect();
 
         let normals: Vec<Vec3> = bytemuck::cast_slice::<u8, f32>(
@@ -32,12 +32,12 @@ impl Mesh {
                 .unwrap(),
         )
         .chunks(3)
-        .map(|pos| Vec3::from_slice(pos))
+        .map(Vec3::from_slice)
         .collect();
 
         let vertices: Vec<Vertex> = positions
             .into_iter()
-            .zip(normals.into_iter())
+            .zip(normals)
             .map(|(position, normal)| Vertex { position, normal })
             .collect();
 
@@ -45,62 +45,45 @@ impl Mesh {
             .get_indices_data(&model)
             .unwrap();
 
-        let vertex_buffer = Static::new(
-            &renderer.ctx,
-            bytemuck::cast_slice::<Vertex, u8>(&vertices),
-            BufferUsageFlags::VERTEX_BUFFER,
-        )?;
-        let index_buffer = Static::new(
-            &renderer.ctx,
-            bytemuck::cast_slice::<u32, u8>(&indices),
-            BufferUsageFlags::INDEX_BUFFER,
-        )?;
-
         Ok(Mesh {
-            vertex_buffer,
-            index_buffer,
+            vertices,
             num_indices: indices.len() as u32,
+            indices,
         })
     }
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize)]
 pub struct Material {
     pub colour: Vec4,
 }
-
-#[derive(Clone, Copy, Debug)]
-pub struct MeshId(usize);
-#[derive(Clone, Copy, Debug)]
-pub struct MaterialId(usize);
-
-#[derive(Default)]
-pub struct Manager {
-    meshes: Vec<Mesh>,
-    materials: Vec<Material>,
+impl Material {
+    pub fn debug_material() -> Self {
+        return Material {
+            colour: Vec4::new(1.0, 0.0, 0.95, 1.0),
+        };
+    }
 }
 
-impl Manager {
-    pub fn new() -> Self {
-        Self::default()
-    }
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeshId(pub String);
 
-    pub fn add_mesh(&mut self, mesh: Mesh) -> MeshId {
-        self.meshes.push(mesh);
-        MeshId(self.meshes.len() - 1)
+impl AsRef<Path> for MeshId {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
     }
+}
 
-    pub fn get_mesh(&self, id: MeshId) -> Option<&Mesh> {
-        self.meshes.get(id.0)
-    }
+#[derive(Default)]
+pub struct MeshCache(HashMap<MeshId, Mesh>);
 
-    pub fn add_material(&mut self, material: Material) -> MaterialId {
-        self.materials.push(material);
-        MaterialId(self.materials.len() - 1)
-    }
-
-    pub fn get_material(&self, id: MaterialId) -> Option<&Material> {
-        self.materials.get(id.0)
+impl MeshCache {
+    pub fn load<P: AsRef<Path>>(&mut self, path: P) -> Result<&Mesh> {
+        let id = MeshId(path.as_ref().to_str().unwrap().to_owned());
+        if self.0.get(&id).is_none() {
+            self.0.insert(id.clone(), Mesh::load(path)?);
+        }
+        Ok(self.0.get(&id).unwrap())
     }
 }

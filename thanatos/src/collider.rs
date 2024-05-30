@@ -1,6 +1,7 @@
 use std::default;
 
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 use tecs::EntityId;
 
 use crate::World;
@@ -24,7 +25,7 @@ impl Ray {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ColliderKind {
     Sphere(f32),
     Aabb(Vec3),
@@ -38,40 +39,51 @@ pub enum ColliderPositionKind {
 
 impl Default for ColliderPositionKind {
     fn default() -> Self {
-        Self::Absolute(Vec3 { x: 0.0, y: 0.0, z: 0.0 })
+        Self::Absolute(Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        })
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Collider {
     pub kind: ColliderKind,
-    pub position: ColliderPositionKind,
+    // pub position: ColliderPositionKind,
+    pub position: Vec3,
 }
 
 impl Collider {
-    pub fn within(&self, point: Vec3, world: &World) -> bool {
-        let point = point - self.calculate_position(world);
+    pub fn within(&self, point: Vec3) -> bool {
+        // let point = point - self.calculate_position(world);
+        let point = point - self.position;
 
         match self.kind {
             ColliderKind::Sphere(radius) => point.length() < radius,
             ColliderKind::Aabb(size) => point
                 .to_array()
                 .into_iter()
-                .zip(size.to_array().into_iter())
+                .zip(size.to_array())
                 .all(|(distance, max_distance)| distance.abs() < max_distance),
         }
     }
 
     fn calculate_position(&self, world: &World) -> Vec3 {
-        return match self.position {
-            ColliderPositionKind::Absolute(pos) => pos,
-            ColliderPositionKind::Relative(rel_pos, parent_id) => {
-                let x = world.get_component::<crate::transform::Transform>(parent_id).map(|t| *t).unwrap_or_default();
-                x.translation + rel_pos
-            }
-        };
-    }
+        return self.position;
+        // relative positioning of colliders not finished and reverted to old implementation
 
+        // return match self.position {
+        //     ColliderPositionKind::Absolute(pos) => pos,
+        //     ColliderPositionKind::Relative(rel_pos, parent_id) => {
+        //         let x = world
+        //             .get_component::<crate::transform::Transform>(parent_id)
+        //             .map(|t| *t)
+        //             .unwrap_or_default();
+        //         x.translation + rel_pos
+        //     }
+        // };
+    }
 
     fn quadratic(a: f32, b: f32, c: f32) -> Option<(f32, f32)> {
         let discriminant = b * b - 4.0 * a * c;
@@ -86,7 +98,7 @@ impl Collider {
 
     pub fn intersects(&self, mut ray: Ray, world: &World) -> Option<Vec3> {
         let calculated_position = self.calculate_position(world);
-        
+
         ray.translate(-calculated_position);
 
         match self.kind {

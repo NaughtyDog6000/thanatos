@@ -1,0 +1,8 @@
+[package]
+name = "assets"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+shaderc = "0.8.3"
+bytemuck = "1.15.0"
