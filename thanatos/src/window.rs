@@ -20,11 +20,20 @@ pub struct Mouse {
     pub position: Vec2,
     pub delta: Vec2,
     down: HashSet<MouseButton>,
+    previous: HashSet<MouseButton>,
 }
 
 impl Mouse {
     pub fn is_down(&self, button: MouseButton) -> bool {
         self.down.contains(&button)
+    }
+
+    pub fn pressed(&self, button: MouseButton) -> bool {
+        self.down.contains(&button) && !self.previous.contains(&button)
+    }
+
+    pub fn released(&self, button: MouseButton) -> bool {
+        !self.down.contains(&button) && self.previous.contains(&button)
     }
 
     pub fn tick(world: &World) {
@@ -120,6 +129,7 @@ impl Window {
             let mut keyboard = world.get_mut::<Keyboard>().unwrap();
             keyboard.previous = keyboard.down.clone();
             let mut mouse = world.get_mut::<Mouse>().unwrap();
+            mouse.previous = mouse.down.clone();
 
             window
                 .event_loop

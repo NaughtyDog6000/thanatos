@@ -1,8 +1,12 @@
 use std::default;
 
 use crate::{
-    camera::Camera, combat::Attackable, combat::CombatOffensive, renderer::RenderObject,
-    transform::Transform, window::Keyboard, Clock, World,
+    camera::Camera,
+    combat::{Attackable, CombatOffensive, TargetedEntity},
+    renderer::RenderObject,
+    transform::Transform,
+    window::Keyboard,
+    Clock, World,
 };
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -17,13 +21,6 @@ impl Default for Health {
     fn default() -> Self {
         Self(100.0)
     }
-}
-#[derive(Clone, Default)]
-pub enum TargetedEntity {
-    #[default]
-    None,
-    EntityId(EntityId),
-    Position(Vec3),
 }
 
 #[derive(Archetype, Clone, Serialize, Deserialize)]

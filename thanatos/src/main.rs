@@ -19,6 +19,7 @@ use crate::{camera::Camera, window::Window};
 use anyhow::Result;
 use assets::{Material, MeshCache, MeshId};
 use collider::{Collider, ColliderKind};
+use combat::Selectable;
 use event::Event;
 use gather::Gatherable;
 use glam::{Vec3, Vec4};
@@ -54,6 +55,7 @@ struct TargetDummy {
     pub render: RenderObject,
     pub defensive_stats: combat::CombatDefensive,
     pub collider: Collider,
+    pub selectable: combat::Selectable,
 }
 
 #[derive(Archetype, Clone, Serialize, Deserialize)]
@@ -61,37 +63,6 @@ struct DebugSphere {
     pub transform: Transform,
     pub render: RenderObject,
 }
-
-// struct Timer {
-//     start: Option<Instant>,
-//     pub duration: Duration,
-// }
-
-// impl Timer {
-//     pub fn new(duration: Duration) -> Self {
-//         Self {
-//             start: None,
-//             duration,
-//         }
-//     }
-
-//     pub fn start(&mut self) {
-//         self.start = Some(Instant::now())
-//     }
-
-//     pub fn done(&self) -> bool {
-//         self.start
-//             .map(|start| start.elapsed() > self.duration)
-//             .unwrap_or(true)
-//     }
-// }
-
-// #[derive(Clone, Debug)]
-// pub struct Clock {
-//     frame_delta: Duration,
-//     start: Instant,
-//     last: Instant,
-// }
 
 impl CopperOre {
     pub fn new(world: &World) -> Result<Self> {
@@ -146,8 +117,11 @@ impl CopperOre {
 pub type World = tecs::World<Event>;
 
 fn main() -> Result<()> {
+    println!(
+        "Logging Level: {}",
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string())
+    );
     pretty_env_logger::init();
-
     let window = Window::new();
 
     let renderer = Renderer::new(&window)?;
@@ -178,42 +152,15 @@ fn main() -> Result<()> {
         })
         .with_ticker(|world| {
             let clock = world.get::<Clock>().unwrap();
-            println!("FPS: {}", 1.0 / clock.delta.as_secs_f32());
+            // println!("FPS: {}", 1.0 / clock.delta.as_secs_f32());
         })
         .with_ticker(Player::tick)
         .with_ticker(gather::tick)
+        .with_ticker(combat::tick)
         .with(net::add);
 
     let mut transform = Transform::IDENTITY;
     transform.translation += Vec3::ZERO;
-
-    /*
-    world.spawn(Player {
-        render: RenderObject {
-            mesh: MeshId(String::from("assets/meshes/cube.glb")),
-            material: Material { colour: Vec4::ONE },
-        },
-        transform,
-        health: Health(100.0),
-    });
-
-    world.spawn(CopperOre::new(&world)?.with_transform(Transform {
-        translation: Vec3::ONE,
-        rotation: Quat::IDENTITY,
-        scale: Vec3::new(3.0, 1.0, 2.0),
-    }));
-
-    let mut scene = Scene::default();
-    scene.from_world(&world);
-
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut serializer = serde_json::Serializer::pretty(&mut buffer);
-    scene.save(&world, &mut serializer).unwrap();
-    std::fs::write("assets/scenes/test.scene", buffer).unwrap();
-    */
-
-    // let buffer = std::fs::read("assets/scenes/test.scene").unwrap();
-    // Scene::load(&world, &mut serde_json::Deserializer::from_slice(&buffer)).unwrap();
 
     world.spawn(TargetDummy {
         transform: Transform::new(
@@ -230,8 +177,53 @@ fn main() -> Result<()> {
             },
         ),
         render: RenderObject {
-            mesh: MeshId(String::from("assets/meshes/copper_ore.glb")),
-            material: Material::debug_material(),
+            mesh: MeshId(String::from(
+                "assets/meshes/mannequin_armor_dummy_medieval_game_prop_Resized.glb",
+            )),
+            material: Material::DEBUG_MATERIAL,
+        },
+        defensive_stats: combat::CombatDefensive {
+            health: 100,
+            fire_resistance: 0,
+            earth_resistance: 0,
+            lightning_resistance: 0,
+            air_resistance: 0,
+            nature_resistance: 0,
+        },
+        collider: Collider {
+            // kind: ColliderKind::Aabb(Vec3 { x: 1., y: 1., z: 1. }),
+            kind: ColliderKind::Sphere(3.),
+            position: Vec3 {
+                x: 5.0,
+                y: 0.0,
+                z: 0.0,
+            },
+        },
+        selectable: combat::Selectable {
+            selected_material: Material::RED,
+            unselected_material: Material::DEBUG_MATERIAL,
+        },
+    });
+
+    world.spawn(TargetDummy {
+        transform: Transform::new(
+            Vec3 {
+                x: -5.,
+                y: 0.,
+                z: 0.,
+            },
+            glam::Quat::default(),
+            Vec3 {
+                x: 1.,
+                y: 1.,
+                z: 1.,
+            },
+        ),
+        render: RenderObject {
+            mesh: MeshId(String::from(
+                "assets/meshes/mannequin_armor_dummy_medieval_game_prop_Resized.glb",
+            )),
+            material: Material::DEBUG_MATERIAL,
         },
         defensive_stats: combat::CombatDefensive {
             health: 200,
@@ -240,16 +232,19 @@ fn main() -> Result<()> {
             lightning_resistance: 0,
             air_resistance: 0,
             nature_resistance: 0,
-            is_dead: false,
         },
         collider: Collider {
             // kind: ColliderKind::Aabb(Vec3 { x: 1., y: 1., z: 1. }),
-            kind: ColliderKind::Sphere(10.),
+            kind: ColliderKind::Sphere(3.),
             position: Vec3 {
-                x: 5.0,
+                x: -5.0,
                 y: 0.0,
                 z: 0.0,
             },
+        },
+        selectable: combat::Selectable {
+            selected_material: Material::RED,
+            unselected_material: Material::DEBUG_MATERIAL,
         },
     });
 
@@ -283,8 +278,19 @@ fn main() -> Result<()> {
             },
             true_damage: 32,
         },
-        targeted_entity: player::TargetedEntity::None,
+        targeted_entity: combat::TargetedEntity::None,
     });
+
+    let mut scene = Scene::default();
+    scene.from_world(&world);
+
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut serializer = serde_json::Serializer::pretty(&mut buffer);
+    scene.save(&world, &mut serializer).unwrap();
+    std::fs::write("assets/scenes/test.scene", buffer).unwrap();
+
+    // let buffer = std::fs::read("assets/scenes/test.scene").unwrap();
+    // Scene::load(&world, &mut serde_json::Deserializer::from_slice(&buffer)).unwrap();
 
     loop {
         if let State::Stopped = *world.get::<State>().unwrap() {

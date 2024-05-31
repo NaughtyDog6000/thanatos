@@ -1,5 +1,6 @@
 use anyhow::Result;
 use glam::{Vec3, Vec4};
+use log::trace;
 use nyx::protocol::{ClientId, Clientbound, ClientboundBundle, Serverbound, Tick, TPS};
 use std::{
     cell::RefCell,
@@ -60,7 +61,8 @@ impl Connection {
 
             let Some(bundle) = conn.get() else { return };
             conn.tick = bundle.tick;
-            println!("Received: {:?}", bundle.tick);
+            trace!("Received: {:?}", bundle.tick);
+
             bundle
                 .messages
                 .into_iter()
@@ -229,7 +231,8 @@ impl System<Event> for MovementSystem {
             Event::Recieved(message) => match message {
                 Clientbound::Spawn(client_id, position) => self.spawn(world, *client_id, *position),
                 Clientbound::Move(client_id, position, tick) => {
-                    println!("Moving {client_id:?} from {tick:?}");
+                    trace!("Moving {client_id:?} from {tick:?}");
+
                     let conn = world.get::<Connection>().unwrap();
                     if *client_id == conn.id.unwrap() {
                         self.move_player(world, *position, *tick);

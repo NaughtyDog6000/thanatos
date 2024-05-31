@@ -1,16 +1,27 @@
 use std::{borrow::Borrow, default};
 
-use glam::{Quat, Vec3};
+use glam::{Quat, Vec3, Vec4};
+use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use tecs::{EntityId, Is};
 
 use crate::{
+    assets::Material,
     camera::Camera,
-    player::{Player, TargetedEntity},
+    player::Player,
+    renderer::RenderObject,
     transform::{self, Transform},
     window::Keyboard,
     TargetDummy, World,
 };
+
+#[derive(Clone, Default)]
+pub enum TargetedEntity {
+    #[default]
+    None,
+    EntityId(EntityId),
+    Position(Vec3),
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AttackType {
@@ -37,10 +48,16 @@ pub struct CombatDefensive {
     pub lightning_resistance: u32,
     pub air_resistance: u32,
     pub nature_resistance: u32,
-
-    // until you can properly remove entities
-    pub is_dead: bool,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Selectable {
+    // the material that will be used when the entity is selected
+    pub selected_material: Material,
+    // the default material
+    pub unselected_material: Material,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct AttackOutcome {
     pub fire_damage: u32,
@@ -55,7 +72,7 @@ pub struct AttackOutcome {
 }
 
 impl AttackOutcome {
-    fn sum_damage(&self) -> u32 {
+    pub fn sum_damage(&self) -> u32 {
         return self.fire_damage
             + self.earth_damage
             + self.lightning_damage
@@ -153,8 +170,9 @@ pub fn tick(world: &World) {
         Is<Player>,
     )>();
 
-    // combat debug stuff
-    if keyboard.is_down("z") {
+    // TODO! BROKEN WHEN PRESS Z AFTER DUMMY DIES
+    // attack every entity that is a target dummy
+    if keyboard.pressed("z") {
         // let (player_offensive, _) = world.query_one::<(&CombatOffensive, Is<Player>)>();
 
         let (dummy_ids, _) = world.query::<(EntityId, Is<crate::TargetDummy>)>();
@@ -162,45 +180,45 @@ pub fn tick(world: &World) {
             let mut defense_struct = world
                 .get_component_mut::<crate::combat::CombatDefensive>(*id)
                 .unwrap();
-            if defense_struct.is_dead {
-                continue;
-            }
-
             let outcome = defense_struct.receive_attack(&player_offensive);
-            println!("Outcome from attack: {:?}", outcome);
+            info!("Outcome from attack: {:?}", outcome);
 
             if outcome.post_attack_health == 0 {
-                println!("entity died, destroying now");
-                let mut dummy_transfrom = world.get_component_mut::<Transform>(*id).unwrap();
-                *dummy_transfrom = transform::Transform::new(Vec3::MAX, Quat::IDENTITY, Vec3::ONE);
-                defense_struct.is_dead = true;
+                // print to console including position
+                let dummy_transfrom = world.get_component::<Transform>(*id).unwrap();
+                info!(
+                    "Entity {} died at ({}, {}, {})",
+                    index,
+                    dummy_transfrom.translation.x,
+                    dummy_transfrom.translation.y,
+                    dummy_transfrom.translation.z
+                );
+
+                *targeted = TargetedEntity::None;
+                world.despawn::<crate::TargetDummy>(*id);
             }
         }
     }
 
     // attack the targeted entity
-    if keyboard.is_down("x") {
+    if keyboard.pressed("x") {
         match *targeted {
-            TargetedEntity::None => println!("No enemy Targeted"),
+            TargetedEntity::None => warn!("No enemy Targeted"),
             TargetedEntity::EntityId(targeted_id) => {
-                let mut defence = world
+                let outcome = world
                     .get_component_mut::<CombatDefensive>(targeted_id)
-                    .unwrap();
-                if !defence.is_dead {
-                    let outcome = defence.receive_attack(&player_offensive);
-                    if outcome.post_attack_health == 0 {
-                        println!("entity died, destroying now");
-                        let mut dummy_transfrom =
-                            world.get_component_mut::<Transform>(targeted_id).unwrap();
-                        *dummy_transfrom =
-                            transform::Transform::new(Vec3::MAX, Quat::IDENTITY, Vec3::ONE);
-                        defence.is_dead = true;
-                    }
-                    println!("Outcome from attack: {:?}", outcome);
+                    .unwrap()
+                    .receive_attack(&player_offensive);
+                info!("Outcome from attack: {:?}", outcome);
+
+                if outcome.post_attack_health == 0 {
+                    // the requirement to pass in the type is a little annoying as this should work for any entity that implements Attackable
+                    world.despawn::<TargetDummy>(targeted_id);
+                    *targeted = TargetedEntity::None;
                 }
             }
             TargetedEntity::Position(_) => {
-                println!("area of effect/non entity targeting completed")
+                error!("area of effect/non entity targeting not implemented")
             }
         }
     }
@@ -209,23 +227,58 @@ pub fn tick(world: &World) {
     let window = world.get::<crate::window::Window>().unwrap();
 
     // try and select via clicking on entity
-    if mouse.is_down(winit::event::MouseButton::Left) {
+    if mouse.pressed(winit::event::MouseButton::Left) {
         let world_pos = camera.ndc_to_world(window.screen_to_ndc(mouse.position));
         let ray = crate::collider::Ray::from_points(camera.eye(), world_pos);
-        // let mut targeted = world.get_component_mut::<TargetedEntity>(player).unwrap();
 
-        let (ids, colliders, _) =
-            world.query::<(EntityId, &crate::collider::Collider, Is<TargetDummy>)>();
+        // clear the previous target and reset its material
+        match *targeted {
+            TargetedEntity::None => (),
+            TargetedEntity::EntityId(targeted_id) => {
+                let mut render_object = world
+                    .get_component_mut::<RenderObject>(targeted_id)
+                    .unwrap();
+                let selectable = world.get_component::<Selectable>(targeted_id).unwrap();
+                *render_object.material.colour = *selectable.unselected_material.colour;
+                trace!("target: {:?} cleared", targeted_id);
+            }
+            TargetedEntity::Position(_) => {
+                error!("area of effect/non entity targeting not implemented");
+            }
+        }
 
+        // get all the possible targets that can be selected
+        let (ids, colliders, selectables, _) = world.query::<(
+            EntityId,
+            &crate::collider::Collider,
+            &Selectable,
+            Is<TargetDummy>,
+        )>();
+
+        trace!("targeting: {:?}", ids.len());
         if ids.len() == 0 {
             return;
         }
 
-        for (ind, collider) in colliders.iter().enumerate() {
+        let mut new_target_found = false;
+
+        // check if the ray intersects with any of the colliders and if so select them
+        // TODO: make this more efficient & handle multiple targets in one raycast
+        for (ind, (collider, selectable)) in colliders.iter().zip(selectables.iter()).enumerate() {
             if collider.intersects(ray, world).is_some() {
+                let mut render_object = world.get_component_mut::<RenderObject>(ids[ind]).unwrap();
+                // set the rendered material of that entity to it's selected material
+                *render_object.material.colour = *selectable.selected_material.colour;
+                info!("target: {:?} selected", ids[ind]);
+                // set as the targeted entity
                 *targeted = TargetedEntity::EntityId(ids[ind]);
-                println!("target selected!");
+                new_target_found = true;
             }
+        }
+
+        if !new_target_found {
+            trace!("no target found inside raycast, deselecting previous target");
+            *targeted = TargetedEntity::None;
         }
     }
 }

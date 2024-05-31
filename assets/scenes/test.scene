@@ -1,22 +1,11 @@
 {
-  "307190193128039230": [
+  "8518023932701546694": [
     {
-      "render": {
-        "mesh": "assets/meshes/copper_ore.glb",
-        "material": {
-          "colour": [
-            1.0,
-            0.5,
-            0.0,
-            1.0
-          ]
-        }
-      },
       "transform": {
         "translation": [
-          1.0,
-          1.0,
-          1.0
+          5.0,
+          0.0,
+          0.0
         ],
         "rotation": [
           0.0,
@@ -25,37 +14,128 @@
           1.0
         ],
         "scale": [
-          3.0,
           1.0,
-          2.0
+          1.0,
+          1.0
         ]
       },
-      "gatherable": {
-        "collider": {
-          "kind": {
-            "Sphere": 5.0
-          },
-          "position": [
+      "render": {
+        "mesh": "assets/meshes/mannequin_armor_dummy_medieval_game_prop_Resized.glb",
+        "material": {
+          "colour": [
+            1.0,
             0.0,
-            0.0,
-            0.0
+            0.95,
+            1.0
           ]
-        },
-        "loot": 0,
-        "timer": {
-          "duration": {
-            "secs": 1,
-            "nanos": 0
-          }
         }
       },
-      "interactable": {
-        "text": "Gather Copper Ore"
+      "defensive_stats": {
+        "health": 100,
+        "fire_resistance": 0,
+        "earth_resistance": 0,
+        "lightning_resistance": 0,
+        "air_resistance": 0,
+        "nature_resistance": 0
       },
-      "name": "Copper Ore"
+      "collider": {
+        "kind": {
+          "Sphere": 3.0
+        },
+        "position": [
+          5.0,
+          0.0,
+          0.0
+        ]
+      },
+      "selectable": {
+        "selected_material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "unselected_material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.95,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "transform": {
+        "translation": [
+          -5.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "render": {
+        "mesh": "assets/meshes/mannequin_armor_dummy_medieval_game_prop_Resized.glb",
+        "material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.95,
+            1.0
+          ]
+        }
+      },
+      "defensive_stats": {
+        "health": 200,
+        "fire_resistance": 0,
+        "earth_resistance": 0,
+        "lightning_resistance": 0,
+        "air_resistance": 0,
+        "nature_resistance": 0
+      },
+      "collider": {
+        "kind": {
+          "Sphere": 3.0
+        },
+        "position": [
+          -5.0,
+          0.0,
+          0.0
+        ]
+      },
+      "selectable": {
+        "selected_material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "unselected_material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.95,
+            1.0
+          ]
+        }
+      }
     }
   ],
-  "3788921169983988392": [
+  "9268774003991858804": [
     {
       "render": {
         "mesh": "assets/meshes/cube.glb",
@@ -85,6 +165,30 @@
           1.0,
           1.0
         ]
+      },
+      "health": 100.0,
+      "offensive_stats": {
+        "fire": {
+          "damage": 0,
+          "penetration": 0
+        },
+        "earth": {
+          "damage": 0,
+          "penetration": 0
+        },
+        "lightning": {
+          "damage": 0,
+          "penetration": 0
+        },
+        "air": {
+          "damage": 0,
+          "penetration": 0
+        },
+        "nature": {
+          "damage": 0,
+          "penetration": 0
+        },
+        "true_damage": 32
       }
     }
   ]

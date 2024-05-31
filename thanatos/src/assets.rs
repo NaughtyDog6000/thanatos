@@ -59,11 +59,13 @@ pub struct Material {
     pub colour: Vec4,
 }
 impl Material {
-    pub fn debug_material() -> Self {
-        return Material {
-            colour: Vec4::new(1.0, 0.0, 0.95, 1.0),
-        };
-    }
+    pub const DEBUG_MATERIAL: Material = Material {
+        colour: Vec4::new(1.0, 0.0, 0.95, 1.0),
+    };
+
+    pub const RED: Material = Material {
+        colour: Vec4::new(1.0, 0.0, 0.0, 1.0),
+    };
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]

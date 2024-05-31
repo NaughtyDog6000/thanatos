@@ -1,4 +1,5 @@
 use glam::{Mat4, Quat, Vec2, Vec3, Vec4, Vec4Swizzles};
+use log::trace;
 
 use crate::{
     event::Event,
@@ -63,7 +64,7 @@ impl Camera {
         let mouse = world.get::<Mouse>().unwrap();
         let mut camera = world.get_mut::<Camera>().unwrap();
         if mouse.is_down(winit::event::MouseButton::Right) {
-            println!("{:?}", mouse.delta.x);
+            trace!("{:?}", mouse.delta.x);
             camera.theta -= mouse.delta.x * 0.02;
         }
     }
