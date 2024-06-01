@@ -1,5 +1,6 @@
 mod assets;
 mod camera;
+mod casting;
 mod collider;
 mod colours;
 mod combat;
@@ -12,17 +13,18 @@ mod inventory;
 mod net;
 mod player;
 mod renderer;
+mod targeting;
 mod transform;
+mod uiutils;
 mod window;
 
 use crate::{camera::Camera, window::Window};
 use anyhow::Result;
 use assets::{Material, MeshCache, MeshId};
 use collider::{Collider, ColliderKind};
-use combat::Selectable;
 use event::Event;
 use gather::Gatherable;
-use glam::{Vec3, Vec4};
+use glam::{Quat, Vec3, Vec4};
 use interact::Interactable;
 use net::Connection;
 use nyx::task::Proficiencies;
@@ -30,6 +32,7 @@ use player::Player;
 use renderer::{RenderObject, Renderer};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
+use targeting::{Selectable, SelectedEntity};
 use tecs::prelude::*;
 use tecs::scene::Scene;
 use tecs::utils::{Clock, Name, State, Timer};
@@ -55,7 +58,7 @@ struct TargetDummy {
     pub render: RenderObject,
     pub defensive_stats: combat::CombatDefensive,
     pub collider: Collider,
-    pub selectable: combat::Selectable,
+    pub selectable: Selectable,
 }
 
 #[derive(Archetype, Clone, Serialize, Deserialize)]
@@ -144,6 +147,7 @@ fn main() -> Result<()> {
         .with(craft::add)
         .with(equipment::add)
         .with(interact::add)
+        .with(targeting::add)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -157,6 +161,7 @@ fn main() -> Result<()> {
         .with_ticker(Player::tick)
         .with_ticker(gather::tick)
         .with_ticker(combat::tick)
+        .with_ticker(targeting::tick)
         .with(net::add);
 
     let mut transform = Transform::IDENTITY;
@@ -184,6 +189,7 @@ fn main() -> Result<()> {
         },
         defensive_stats: combat::CombatDefensive {
             health: 100,
+            max_health: 100,
             fire_resistance: 0,
             earth_resistance: 0,
             lightning_resistance: 0,
@@ -199,9 +205,10 @@ fn main() -> Result<()> {
                 z: 0.0,
             },
         },
-        selectable: combat::Selectable {
+        selectable: Selectable {
             selected_material: Material::RED,
             unselected_material: Material::DEBUG_MATERIAL,
+            selected_name: "Target1".to_string(),
         },
     });
 
@@ -227,6 +234,7 @@ fn main() -> Result<()> {
         },
         defensive_stats: combat::CombatDefensive {
             health: 200,
+            max_health: 200,
             fire_resistance: 0,
             earth_resistance: 0,
             lightning_resistance: 0,
@@ -242,9 +250,10 @@ fn main() -> Result<()> {
                 z: 0.0,
             },
         },
-        selectable: combat::Selectable {
+        selectable: Selectable {
             selected_material: Material::RED,
             unselected_material: Material::DEBUG_MATERIAL,
+            selected_name: "Target2".to_string(),
         },
     });
 
@@ -278,16 +287,21 @@ fn main() -> Result<()> {
             },
             true_damage: 32,
         },
-        targeted_entity: combat::TargetedEntity::None,
+        targeted_entity: SelectedEntity::None,
     });
 
-    let mut scene = Scene::default();
-    scene.from_world(&world);
+    world.spawn(CopperOre::new(&world)?.with_transform(Transform {
+        translation: Vec3::ONE,
+        rotation: Quat::IDENTITY,
+        scale: Vec3::new(3.0, 1.0, 2.0),
+    }));
+    // let mut scene = Scene::default();
+    // scene.from_world(&world);
 
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut serializer = serde_json::Serializer::pretty(&mut buffer);
-    scene.save(&world, &mut serializer).unwrap();
-    std::fs::write("assets/scenes/test.scene", buffer).unwrap();
+    // let mut buffer: Vec<u8> = Vec::new();
+    // let mut serializer = serde_json::Serializer::pretty(&mut buffer);
+    // scene.save(&world, &mut serializer).unwrap();
+    // std::fs::write("assets/scenes/test.scene", buffer).unwrap();
 
     // let buffer = std::fs::read("assets/scenes/test.scene").unwrap();
     // Scene::load(&world, &mut serde_json::Deserializer::from_slice(&buffer)).unwrap();

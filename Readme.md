@@ -27,7 +27,6 @@ Debug:
 
 Select multiple entities at once
 Add Ctrl + LMB for select multiple
-UI showing Selected Target (name, health stats etc)
 Attack Types/casts
 Post Death Event (for death animations etc)
 

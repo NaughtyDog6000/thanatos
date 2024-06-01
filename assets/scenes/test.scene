@@ -3,73 +3,6 @@
     {
       "transform": {
         "translation": [
-          5.0,
-          0.0,
-          0.0
-        ],
-        "rotation": [
-          0.0,
-          0.0,
-          0.0,
-          1.0
-        ],
-        "scale": [
-          1.0,
-          1.0,
-          1.0
-        ]
-      },
-      "render": {
-        "mesh": "assets/meshes/mannequin_armor_dummy_medieval_game_prop_Resized.glb",
-        "material": {
-          "colour": [
-            1.0,
-            0.0,
-            0.95,
-            1.0
-          ]
-        }
-      },
-      "defensive_stats": {
-        "health": 100,
-        "fire_resistance": 0,
-        "earth_resistance": 0,
-        "lightning_resistance": 0,
-        "air_resistance": 0,
-        "nature_resistance": 0
-      },
-      "collider": {
-        "kind": {
-          "Sphere": 3.0
-        },
-        "position": [
-          5.0,
-          0.0,
-          0.0
-        ]
-      },
-      "selectable": {
-        "selected_material": {
-          "colour": [
-            1.0,
-            0.0,
-            0.0,
-            1.0
-          ]
-        },
-        "unselected_material": {
-          "colour": [
-            1.0,
-            0.0,
-            0.95,
-            1.0
-          ]
-        }
-      }
-    },
-    {
-      "transform": {
-        "translation": [
           -5.0,
           0.0,
           0.0
@@ -99,6 +32,7 @@
       },
       "defensive_stats": {
         "health": 200,
+        "max_health": 200,
         "fire_resistance": 0,
         "earth_resistance": 0,
         "lightning_resistance": 0,
@@ -131,7 +65,77 @@
             0.95,
             1.0
           ]
+        },
+        "selected_name": "Target2"
+      }
+    },
+    {
+      "transform": {
+        "translation": [
+          5.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "render": {
+        "mesh": "assets/meshes/mannequin_armor_dummy_medieval_game_prop_Resized.glb",
+        "material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.95,
+            1.0
+          ]
         }
+      },
+      "defensive_stats": {
+        "health": 100,
+        "max_health": 100,
+        "fire_resistance": 0,
+        "earth_resistance": 0,
+        "lightning_resistance": 0,
+        "air_resistance": 0,
+        "nature_resistance": 0
+      },
+      "collider": {
+        "kind": {
+          "Sphere": 3.0
+        },
+        "position": [
+          5.0,
+          0.0,
+          0.0
+        ]
+      },
+      "selectable": {
+        "selected_material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "unselected_material": {
+          "colour": [
+            1.0,
+            0.0,
+            0.95,
+            1.0
+          ]
+        },
+        "selected_name": "Target1"
       }
     }
   ],

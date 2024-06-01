@@ -1,12 +1,8 @@
 use std::default;
 
 use crate::{
-    camera::Camera,
-    combat::{Attackable, CombatOffensive, TargetedEntity},
-    renderer::RenderObject,
-    transform::Transform,
-    window::Keyboard,
-    Clock, World,
+    camera::Camera, combat::CombatOffensive, renderer::RenderObject, targeting::SelectedEntity,
+    transform::Transform, window::Keyboard, Clock, World,
 };
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -30,7 +26,7 @@ pub struct Player {
     pub health: Health,
     pub offensive_stats: CombatOffensive,
     #[serde(skip)]
-    pub targeted_entity: TargetedEntity,
+    pub targeted_entity: SelectedEntity,
 }
 
 impl Player {

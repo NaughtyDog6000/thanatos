@@ -1,27 +1,17 @@
-use std::{borrow::Borrow, default};
-
 use glam::{Quat, Vec3, Vec4};
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use tecs::{EntityId, Is};
 
 use crate::{
-    assets::Material,
     camera::Camera,
     player::Player,
     renderer::RenderObject,
-    transform::{self, Transform},
+    targeting::{Selectable, SelectedEntity},
+    transform::Transform,
     window::Keyboard,
     TargetDummy, World,
 };
-
-#[derive(Clone, Default)]
-pub enum TargetedEntity {
-    #[default]
-    None,
-    EntityId(EntityId),
-    Position(Vec3),
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AttackType {
@@ -40,9 +30,20 @@ pub struct CombatOffensive {
     pub true_damage: u32,
 }
 
+impl std::fmt::Display for CombatOffensive {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "CombatOffensive: \nfire: {:?}\nearth: {:?}\nlightning: {:?}\nair: {:?}\nnature: {:?}\ntrue_damage: {:?}",
+            self.fire, self.earth, self.lightning, self.air, self.nature, self.true_damage
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct CombatDefensive {
     pub health: u32,
+    pub max_health: u32,
     pub fire_resistance: u32,
     pub earth_resistance: u32,
     pub lightning_resistance: u32,
@@ -50,12 +51,14 @@ pub struct CombatDefensive {
     pub nature_resistance: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Selectable {
-    // the material that will be used when the entity is selected
-    pub selected_material: Material,
-    // the default material
-    pub unselected_material: Material,
+impl std::fmt::Display for CombatDefensive {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "CombatDefensive: \nhealth: {}\nfire_resistance: {}\nearth_resistance: {}\nlightning_resistance: {}\nair_resistance: {}\nnature_resistance: {}\n",
+            self.health, self.fire_resistance, self.earth_resistance, self.lightning_resistance, self.air_resistance, self.nature_resistance
+        )
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -161,14 +164,9 @@ impl Attackable for CombatDefensive {
 
 pub fn tick(world: &World) {
     let keyboard = world.get::<Keyboard>().unwrap();
-    let mut camera = world.get_mut::<Camera>().unwrap();
 
-    let (mut transform, player_offensive, mut targeted, _) = world.query_one::<(
-        &mut Transform,
-        &CombatOffensive,
-        &mut TargetedEntity,
-        Is<Player>,
-    )>();
+    let (player_offensive, mut targeted, _) =
+        world.query_one::<(&CombatOffensive, &mut SelectedEntity, Is<Player>)>();
 
     // TODO! BROKEN WHEN PRESS Z AFTER DUMMY DIES
     // attack every entity that is a target dummy
@@ -194,7 +192,7 @@ pub fn tick(world: &World) {
                     dummy_transfrom.translation.z
                 );
 
-                *targeted = TargetedEntity::None;
+                *targeted = SelectedEntity::None;
                 world.despawn::<crate::TargetDummy>(*id);
             }
         }
@@ -203,8 +201,8 @@ pub fn tick(world: &World) {
     // attack the targeted entity
     if keyboard.pressed("x") {
         match *targeted {
-            TargetedEntity::None => warn!("No enemy Targeted"),
-            TargetedEntity::EntityId(targeted_id) => {
+            SelectedEntity::None => warn!("No enemy Targeted"),
+            SelectedEntity::EntityId(targeted_id) => {
                 let outcome = world
                     .get_component_mut::<CombatDefensive>(targeted_id)
                     .unwrap()
@@ -214,71 +212,12 @@ pub fn tick(world: &World) {
                 if outcome.post_attack_health == 0 {
                     // the requirement to pass in the type is a little annoying as this should work for any entity that implements Attackable
                     world.despawn::<TargetDummy>(targeted_id);
-                    *targeted = TargetedEntity::None;
+                    *targeted = SelectedEntity::None;
                 }
             }
-            TargetedEntity::Position(_) => {
+            SelectedEntity::Position(_) => {
                 error!("area of effect/non entity targeting not implemented")
             }
-        }
-    }
-
-    let mouse = world.get_mut::<crate::window::Mouse>().unwrap();
-    let window = world.get::<crate::window::Window>().unwrap();
-
-    // try and select via clicking on entity
-    if mouse.pressed(winit::event::MouseButton::Left) {
-        let world_pos = camera.ndc_to_world(window.screen_to_ndc(mouse.position));
-        let ray = crate::collider::Ray::from_points(camera.eye(), world_pos);
-
-        // clear the previous target and reset its material
-        match *targeted {
-            TargetedEntity::None => (),
-            TargetedEntity::EntityId(targeted_id) => {
-                let mut render_object = world
-                    .get_component_mut::<RenderObject>(targeted_id)
-                    .unwrap();
-                let selectable = world.get_component::<Selectable>(targeted_id).unwrap();
-                *render_object.material.colour = *selectable.unselected_material.colour;
-                trace!("target: {:?} cleared", targeted_id);
-            }
-            TargetedEntity::Position(_) => {
-                error!("area of effect/non entity targeting not implemented");
-            }
-        }
-
-        // get all the possible targets that can be selected
-        let (ids, colliders, selectables, _) = world.query::<(
-            EntityId,
-            &crate::collider::Collider,
-            &Selectable,
-            Is<TargetDummy>,
-        )>();
-
-        trace!("targeting: {:?}", ids.len());
-        if ids.len() == 0 {
-            return;
-        }
-
-        let mut new_target_found = false;
-
-        // check if the ray intersects with any of the colliders and if so select them
-        // TODO: make this more efficient & handle multiple targets in one raycast
-        for (ind, (collider, selectable)) in colliders.iter().zip(selectables.iter()).enumerate() {
-            if collider.intersects(ray, world).is_some() {
-                let mut render_object = world.get_component_mut::<RenderObject>(ids[ind]).unwrap();
-                // set the rendered material of that entity to it's selected material
-                *render_object.material.colour = *selectable.selected_material.colour;
-                info!("target: {:?} selected", ids[ind]);
-                // set as the targeted entity
-                *targeted = TargetedEntity::EntityId(ids[ind]);
-                new_target_found = true;
-            }
-        }
-
-        if !new_target_found {
-            trace!("no target found inside raycast, deselecting previous target");
-            *targeted = TargetedEntity::None;
         }
     }
 }

@@ -361,7 +361,7 @@ impl<A: Element, B: Element> Element for VPair<A, B> {
 
 pub struct Constrain<T: Element> {
     pub child: T,
-    pub constraint: Constraint<Vec2>
+    pub constraint: Constraint<Vec2>,
 }
 
 impl<T: Element> Element for Constrain<T> {

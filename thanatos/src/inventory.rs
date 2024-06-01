@@ -7,7 +7,11 @@ use styx::components::{Container, HAlign, HGroup, Text};
 use tecs::SystemMut;
 
 use crate::{
-    colours::rarity_colour, event::Event, renderer::{Anchor, Ui}, window::Keyboard, World
+    colours::rarity_colour,
+    event::Event,
+    renderer::{Anchor, Ui},
+    window::Keyboard,
+    World,
 };
 
 pub struct InventoryUi {
