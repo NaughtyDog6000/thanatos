@@ -64,9 +64,15 @@ pub struct RenderObject {
 
 #[derive(Clone, Copy)]
 pub enum Anchor {
-    TopLeft,
     Cursor,
+    TopLeft,
+    TopCenter,
+    TopRight,
+    CenterLeft,
     Center,
+    CenterRight,
+    BottomLeft,
+    BottomCenter,
     BottomRight,
 }
 
@@ -106,7 +112,7 @@ impl Ui {
                 match button {
                     MouseButton::Left => styx::Event::Click(mouse.position),
                     MouseButton::Right => styx::Event::RightClick(mouse.position),
-                    _ => return
+                    _ => return,
                 }
             }
             _ => return,
@@ -132,9 +138,20 @@ impl Ui {
         self.elements.iter_mut().for_each(|(anchor, element)| {
             let size = element.layout(constraint);
             let origin = match anchor {
-                Anchor::TopLeft => Vec2::ZERO,
-                Anchor::Center => (window_size - size) / 2.0,
                 Anchor::Cursor => mouse.position,
+                Anchor::TopLeft => Vec2::ZERO,
+                Anchor::TopCenter => Vec2::new((window_size.x - size.x) / 2.0, 0.0),
+                Anchor::TopRight => Vec2::new(window_size.x - size.x, 0.0),
+                Anchor::CenterLeft => Vec2::new(0.0, (window_size.y - size.y) / 2.0),
+                Anchor::Center => (window_size - size) / 2.0,
+                Anchor::CenterRight => {
+                    Vec2::new(window_size.x - size.x, (window_size.y - size.y) / 2.0)
+                }
+                Anchor::BottomLeft => Vec2::new(0.0, window_size.y - size.y),
+                Anchor::BottomCenter => Vec2 {
+                    x: (window_size.x - size.x) / 2 as f32,
+                    y: window_size.y - size.y,
+                },
                 Anchor::BottomRight => window_size - size,
             };
 
@@ -493,14 +510,22 @@ impl Renderer {
         let mut index_offset = 0;
         let mut vertex_offset = 0;
 
-        let draws = render_objects.iter().flat_map(|object| {
-            let mesh = meshes.load(&object.mesh).unwrap();
-            let draw = [mesh.indices.len() as u32, 1, index_offset, vertex_offset, 0];
-            index_offset += mesh.indices.len() as u32;
-            vertex_offset += mesh.vertices.len() as u32;
-            draw
-        }).collect::<Vec<u32>>();
-        let draw_buffer = Static::new(&renderer.ctx, bytemuck::cast_slice::<u32, u8>(&draws), BufferUsageFlags::INDIRECT_BUFFER).unwrap();
+        let draws = render_objects
+            .iter()
+            .flat_map(|object| {
+                let mesh = meshes.load(&object.mesh).unwrap();
+                let draw = [mesh.indices.len() as u32, 1, index_offset, vertex_offset, 0];
+                index_offset += mesh.indices.len() as u32;
+                vertex_offset += mesh.vertices.len() as u32;
+                draw
+            })
+            .collect::<Vec<u32>>();
+        let draw_buffer = Static::new(
+            &renderer.ctx,
+            bytemuck::cast_slice::<u32, u8>(&draws),
+            BufferUsageFlags::INDIRECT_BUFFER,
+        )
+        .unwrap();
 
         let vertex_buffer = Static::new(
             &renderer.ctx,
@@ -549,7 +574,8 @@ impl Renderer {
             .bind_descriptor_set(&camera_set, 0)
             .bind_descriptor_set(&set, 1)
             .bind_vertex_buffer(&vertex_buffer, 0)
-            .bind_index_buffer(&index_buffer).draw_indexed_indirect(&draw_buffer, 0, draws.len() as u32 / 5, 20);
+            .bind_index_buffer(&index_buffer)
+            .draw_indexed_indirect(&draw_buffer, 0, draws.len() as u32 / 5, 20);
 
         let cmd = match frame {
             Some(frame) => renderer.ui.draw(frame, cmd),

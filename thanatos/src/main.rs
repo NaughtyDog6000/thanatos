@@ -21,6 +21,7 @@ mod window;
 use crate::{camera::Camera, window::Window};
 use anyhow::Result;
 use assets::{Material, MeshCache, MeshId};
+use casting::Skill;
 use collider::{Collider, ColliderKind};
 use event::Event;
 use gather::Gatherable;
@@ -148,6 +149,7 @@ fn main() -> Result<()> {
         .with(equipment::add)
         .with(interact::add)
         .with(targeting::add)
+        .with(casting::add)
         .with_handler(|world, event| match event {
             Event::Stop => {
                 *world.get_mut::<State>().unwrap() = State::Stopped;
@@ -286,6 +288,62 @@ fn main() -> Result<()> {
                 penetration: 0,
             },
             true_damage: 32,
+            equiped_skills: vec![
+                Skill {
+                    name: "fireball".to_string(),
+                    description: "strike an area with a fireball doing {DAMAGE} damage."
+                        .to_string(),
+                    cooldown: 12.0,
+                    targeting_method: casting::SkillTargeting::Point { range: 10.0 },
+                    cast_type: casting::CastType::Charge {
+                        charge_duration: 4.0,
+                        stationary_cast: true,
+                    },
+                    effects: [
+                        casting::Effect {
+                            area_of_effect: Some(2.0),
+                            variant: casting::EffectType::Damage(casting::DamageEffect {
+                                true_damage: 0,
+                                melee_damage: 0,
+                                ranged_damage: 0,
+                                magic_damage: 20,
+                            }),
+                        },
+                        casting::Effect {
+                            area_of_effect: None,
+                            variant: casting::EffectType::BufDebuf,
+                        },
+                    ]
+                    .to_vec(),
+                },
+                Skill {
+                    name: "IceDart".to_string(),
+                    description: "strike an area with a Shard of ICE doing {DAMAGE} damage."
+                        .to_string(),
+                    cooldown: 12.0,
+                    targeting_method: casting::SkillTargeting::Point { range: 10.0 },
+                    cast_type: casting::CastType::Charge {
+                        charge_duration: 4.0,
+                        stationary_cast: true,
+                    },
+                    effects: [
+                        casting::Effect {
+                            area_of_effect: Some(2.0),
+                            variant: casting::EffectType::Damage(casting::DamageEffect {
+                                true_damage: 0,
+                                melee_damage: 0,
+                                ranged_damage: 0,
+                                magic_damage: 20,
+                            }),
+                        },
+                        casting::Effect {
+                            area_of_effect: None,
+                            variant: casting::EffectType::BufDebuf,
+                        },
+                    ]
+                    .to_vec(),
+                },
+            ],
         },
         targeted_entity: SelectedEntity::None,
     });

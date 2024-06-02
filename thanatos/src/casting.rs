@@ -1,11 +1,102 @@
 use std::fmt;
 
+use gltf::Material;
 use serde::{Deserialize, Serialize};
+use styx::{
+    components::{Clicked, HAlign, HGroup, Text, VAlign, VGroup},
+    Signal,
+};
+use tecs::{Is, SystemMut};
+
+use crate::{
+    combat::CombatOffensive,
+    event::Event,
+    player::Player,
+    renderer::{Anchor, Ui},
+    targeting::SelectedEntity,
+    uiutils, World,
+};
 
 // casting UI for the player
+#[derive(Debug, Clone)]
 pub struct CastingUI {
     pub open: bool,
-    pub equiped_skills: Vec<Skill>,
+    pub casts: Vec<Signal>,
+}
+
+// MAX EQUIPED SKILLS
+const MAX_EQUIPED: usize = 20;
+
+pub fn add(world: World) -> World {
+    let ui = CastingUI::new(&world);
+    world.with_system_mut(ui)
+}
+
+impl CastingUI {
+    fn new(world: &World) -> Self {
+        let mut ui = world.get_mut::<Ui>().unwrap();
+
+        Self {
+            open: true,
+            casts: vec![ui.signals.signal(); MAX_EQUIPED],
+        }
+    }
+}
+
+impl SystemMut<Event> for CastingUI {
+    fn tick(&mut self, world: &World) {
+        if !self.open {
+            return;
+        }
+        let mut ui = world.get_mut::<Ui>().unwrap();
+
+        // Get the equiped skills for the player
+        let (mut selected, player_offensive, _) =
+            world.query_one::<(&mut SelectedEntity, &CombatOffensive, Is<Player>)>();
+
+        let equiped = &player_offensive.equiped_skills;
+
+        let mut skill_slot_ui = VGroup::new(VAlign::Top, 32.0);
+        // add the equiped skills to the view
+        for (i, skill) in equiped.iter().enumerate() {
+            let mut skill_ui = HGroup::new(HAlign::Left, 32.0);
+            skill_ui = skill_ui.add(Text {
+                text: skill.name.clone(),
+                font: ui.font.clone(),
+                font_size: 32.0,
+                colour: crate::colours::rarity_colour(nyx::item::Rarity::Legendary),
+            });
+
+            skill_ui = skill_ui.add(Text {
+                text: uiutils::progress_bar_string(15, 0.25),
+                font: ui.font.clone(),
+                font_size: 16.0,
+                colour: crate::colours::rarity_colour(nyx::item::Rarity::Epic),
+            });
+
+            // create a signal for each equiped skill to cast
+            skill_ui = skill_ui.add(Clicked {
+                signal: self.casts[i],
+                child: Text {
+                    text: "cast".to_string(),
+                    font_size: 48.0,
+                    font: ui.font.clone(),
+                    colour: glam::Vec4::ONE,
+                },
+            });
+
+            skill_slot_ui = skill_slot_ui.add(skill_ui);
+        }
+
+        ui.add(Anchor::BottomCenter, skill_slot_ui);
+
+        // TODO! DEBUG REMOVE
+        for i in 0..equiped.len() {
+            if ui.signals.get(self.casts[i]) {
+                println!("cast skill {}", i);
+            }
+        }
+    }
 }
 
 // skills are something that the user actively "casts" or activates

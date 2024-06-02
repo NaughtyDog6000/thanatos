@@ -5,6 +5,7 @@ use tecs::{EntityId, Is};
 
 use crate::{
     camera::Camera,
+    casting::Skill,
     player::Player,
     renderer::RenderObject,
     targeting::{Selectable, SelectedEntity},
@@ -19,7 +20,7 @@ pub struct AttackType {
     pub penetration: u32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatOffensive {
     pub fire: AttackType,
     pub earth: AttackType,
@@ -28,6 +29,7 @@ pub struct CombatOffensive {
     pub nature: AttackType,
 
     pub true_damage: u32,
+    pub equiped_skills: Vec<Skill>,
 }
 
 impl std::fmt::Display for CombatOffensive {
